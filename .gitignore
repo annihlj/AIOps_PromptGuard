@@ -1,0 +1,16 @@
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+
+# Data (download with: python src/download_data.py)
+data/*
+!data/.gitkeep
+
+# Secrets
+.env
