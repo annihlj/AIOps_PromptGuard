@@ -11,6 +11,12 @@ __pycache__/
 # Data (download with: python src/download_data.py)
 data/*
 !data/.gitkeep
+!data/splits.csv
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
 
 # Secrets
 .env

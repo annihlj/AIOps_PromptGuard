@@ -25,6 +25,87 @@ Compare detection quality, missed sensitive content, false alarms and response t
 ## Tech stack
 Python; Jupyter; Hugging Face; MLflow; FastAPI; GitHub
 
+## Data, Policy and Split
+
+### Dataset
+[`ai4privacy/pii-masking-200k`](https://huggingface.co/datasets/ai4privacy/pii-masking-200k),
+the German, English, French and Italian files (209,261 synthetic texts, 56 PII labels).
+The first analysis is in [`notebooks/preperation.ipynb`](notebooks/preperation.ipynb).
+
+### Policy: PII label → allow / warn / block
+[`config/policy.yaml`](config/policy.yaml) maps every PII label to a decision
+(current version is a proposal):
+
+- **block:** credentials and financial / government identifiers (password, PIN, credit card, IBAN, account number, SSN, ...)
+- **warn:** data that identifies or locates a person (names, e-mail, phone, address, date of birth, IP, ...)
+- **allow:** context data that does not identify a person on its own (date, amount, job title, city, ...)
+
+A text gets the **most severe** decision of all its PII entities (block > warn > allow).
+Result on the full dataset: 7.8 % allow, 60.7 % warn, 31.4 % block.
+
+### Train / validation / test split
+All models use the **same fixed split**, stored in [`data/splits.csv`](data/splits.csv)
+(columns `id`, `split`; committed to Git).
+
+| Rule | Value |
+|---|---|
+| Shares | 70 % train / 15 % validation / 15 % test |
+| Stratified by | language × policy decision (e.g. `de_allow`, `fr_block`) |
+| Grouped by | masked template (`target_text`): texts that share a template are always in the same split, so the test set contains no templates seen in training |
+| Excluded | 41 lorem-ipsum filler texts (`split = excluded`) |
+| Seed | 42 |
+| Fingerprint | `6afd6a257de1` (SHA-256 of `splits.csv`, first 12 characters) |
+
+Resulting sizes: train 146,455 · validation 31,380 · test 31,385.
+Every language × decision group has the same share in all three splits.
+
+The split was created with `python src/make_splits.py`. The script is
+deterministic (running it again gives the same fingerprint) and refuses to
+overwrite an existing `splits.csv` unless `--force` is passed.
+**Do not re-create the split** unless the whole team agrees. Otherwise results
+of different models are no longer comparable.
+
+> The split is fixed independently of the policy. If labels in `policy.yaml`
+> are moved later, the `decision` column changes, but the split stays the same.
+
+### Using the data for model training
+Load the data **only** through [`src/data_utils.py`](src/data_utils.py).
+From a notebook inside `notebooks/`:
+
+```python
+import sys
+sys.path.append("../src")
+from data_utils import load_all_splits, split_fingerprint
+
+splits = load_all_splits()          # dict with "train", "validation", "test"
+train = splits["train"]
+val   = splits["validation"]
+print("split fingerprint:", split_fingerprint())
+```
+
+Each split is a DataFrame with all original dataset columns plus `decision`:
+
+| Column | Use it for |
+|---|---|
+| `source_text` | model input (the prompt) |
+| `decision` | target for classifiers (allow / warn / block) |
+| `privacy_mask` | character spans + labels, for regex / span-based evaluation |
+| `mbert_text_tokens`, `mbert_bio_labels` | token-level BIO labels for NER models |
+| `language` | per-language evaluation (especially `de`) |
+
+Other helpers: `load_split("train")` loads a single split,
+`load_policy()` / `prompt_decision(privacy_mask, policy)` turn detected PII labels
+into a decision. Use the same function to turn NER predictions into allow / warn / block.
+
+**Rules for every model**
+1. Train only on `train`.
+2. Tune hyperparameters, thresholds and compare models only on `validation`.
+3. Evaluate on `test` **once**, at the end, for the final chosen models.
+4. Log `split_fingerprint()` and the policy version with every MLflow run.
+5. Report results overall **and** for `language == "de"`.
+6. Realistic German prompts (written by us) are kept as a separate, extra test set
+   and are not part of this split.
+
 ## Setting Up the Environment and Running the Notebooks
 
 Our Jupyter notebooks (`.ipynb` files) use a virtual Python environment
@@ -154,6 +235,17 @@ Files that already exist are skipped.
 See the original
 [dataset card](https://huggingface.co/datasets/ai4privacy/pii-masking-200k)
 for details about the dataset, its structure, and its usage terms.
+
+### 5c. Check the Train / Validation / Test Split
+
+The split file `data/splits.csv` is part of the repository. Check that you have it:
+
+```bash
+python src/make_splits.py
+```
+
+The script only prints the existing fingerprint (`6afd6a257de1`) and does not
+change anything. See [Train / validation / test split](#train--validation--test-split).
 
 ### 6. Register the Environment as a Notebook Kernel
 
