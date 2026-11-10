@@ -4,3 +4,4 @@ ipykernel
 huggingface_hub
 pyyaml
 scikit-learn
+mlflow

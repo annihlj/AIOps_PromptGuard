@@ -13,6 +13,11 @@ data/*
 !data/.gitkeep
 !data/splits.csv
 
+# Trained models and MLflow runs (large, re-created by running the notebooks)
+models/*.joblib
+mlruns/
+mlflow.db
+
 # Editor / OS
 .vscode/
 .idea/
