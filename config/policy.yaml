@@ -1,0 +1,99 @@
+# PromptGuard policy (PROPOSAL - to be discussed in the team)
+#
+# Maps every PII label of ai4privacy/pii-masking-200k (56 labels) to one decision.
+#
+# Decision rule for a whole prompt:
+#   - The most severe decision of all detected entities wins: block > warn > allow.
+#   - A prompt without any detected entity is "allow".
+#
+# Guiding idea:
+#   block - secrets and financial / government identifiers that enable direct misuse
+#           (fraud, account takeover, identity theft) as soon as they leave the company.
+#   warn  - data that identifies or locates a person (directly or in combination);
+#           the employee should review and edit the prompt before sending it.
+#   allow - context data that does not identify a person on its own
+#           (dates, amounts, job titles, cities, ...).
+
+version: 0.1
+dataset: ai4privacy/pii-masking-200k
+
+decision_order: [block, warn, allow]   # most severe first
+default_decision: allow                # no entity detected
+
+labels:
+  block:
+    # Credentials
+    - PASSWORD
+    - PIN
+    # Payment cards
+    - CREDITCARDNUMBER
+    - CREDITCARDCVV
+    - MASKEDNUMBER        # in this dataset mostly full 16-digit card-like numbers
+    # Bank accounts
+    - IBAN
+    - ACCOUNTNUMBER
+    # Government identifiers
+    - SSN
+
+  warn:
+    # Names and online identity
+    - FIRSTNAME
+    - MIDDLENAME
+    - LASTNAME
+    - USERNAME
+    - EMAIL
+    - PHONENUMBER
+    # Postal address (identifies where a person lives)
+    - STREET
+    - BUILDINGNUMBER
+    - SECONDARYADDRESS
+    - ZIPCODE
+    # Personal attributes
+    - DOB
+    - GENDER              # gender identity can be sensitive data
+    # Technical identifiers that can be linked to a person / device
+    - IP
+    - IPV4
+    - IPV6
+    - MAC
+    - PHONEIMEI
+    - NEARBYGPSCOORDINATE
+    # Vehicles
+    - VEHICLEVRM          # licence plate
+    - VEHICLEVIN
+    # Financial, but not directly usable for fraud on its own
+    - BIC
+    - BITCOINADDRESS
+    - ETHEREUMADDRESS
+    - LITECOINADDRESS
+
+  allow:
+    # Dates, times, amounts
+    - DATE
+    - TIME
+    - AMOUNT
+    - CURRENCY
+    - CURRENCYNAME
+    - CURRENCYCODE
+    - CURRENCYSYMBOL
+    # Generic person attributes (not identifying on their own)
+    - PREFIX              # Mr., Ms., Dr.
+    - SEX
+    - AGE
+    - EYECOLOR
+    - HEIGHT
+    # Job and company context
+    - JOBTITLE
+    - JOBTYPE
+    - JOBAREA
+    - COMPANYNAME
+    # Coarse location
+    - CITY
+    - COUNTY
+    - STATE
+    - ORDINALDIRECTION    # Northeast, Southwest, ...
+    # Generic financial / technical context
+    - ACCOUNTNAME         # e.g. "Checking Account" (type, not the number)
+    - CREDITCARDISSUER    # e.g. "mastercard"
+    - URL
+    - USERAGENT
