@@ -5,3 +5,5 @@ huggingface_hub
 pyyaml
 scikit-learn
 mlflow
+pyarrow # added when tuning tfidf
+python-dotenv  # added when tuning tfidf
