@@ -1,0 +1,5 @@
+model,block threshold,ai4privacy macro_f1,ai4privacy recall_block,ai4privacy false_block_allow,harmless -> allow,harmless -> warn,harmless -> block
+before (no harmless data),argmax,0.8769,0.9171,0.0114,0.4113,0.5674,0.0213
+before (no harmless data),0.2,0.8639,0.9549,0.0216,0.4096,0.5461,0.0443
+after (with harmless data),argmax,0.8764,0.917,0.0122,0.9273,0.0603,0.0124
+after (with harmless data),0.2,0.8648,0.9537,0.024,0.922,0.0603,0.0177

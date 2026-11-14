@@ -96,6 +96,25 @@ Other helpers: `load_split("train")` loads a single split,
 `load_policy()` / `prompt_decision(privacy_mask, policy)` turn detected PII labels
 into a decision. Use the same function to turn NER predictions into allow / warn / block.
 
+### Extra harmless prompts and own test prompts (added when tuning tfidf)
+
+The ai4privacy dataset has **no text without personal data**, so the model never learned what a normal,
+harmless business prompt looks like. We therefore use two extra files:
+
+| File | Content | Used for |
+|---|---|---|
+| `data/harmless_prompts.csv` (built by `python src/harmless_data.py`, not in Git) | PII-free prompts, decision `allow`: first user questions from [oasst1](https://huggingface.co/datasets/OpenAssistant/oasst1) (Apache-2.0, de/en/fr/it, filtered for personal data) + company-style template prompts | oasst1: 70 / 15 / 15 train / validation / test (deterministic, by conversation). Templates: train only |
+| `data/own_prompts.csv` (in Git) | 200 hand-written realistic German prompts (our product targets German companies): 80 allow, 60 warn, 60 block, column `style` = formal / casual | **Evaluation only. Never train or tune on these prompts.** |
+
+Rules:
+- A prompt is either training data or test data, never both. `harmless_data.py` removes any prompt that also appears in `own_prompts.csv`.
+- Log `harmless_fingerprint()` in MLflow together with `split_fingerprint()`.
+- The test parts are used once, at the end (Milestone 5).
+
+Experiments:
+- `notebooks/tfidf_tuning.ipynb` (M2 A, part 1): higher `C` and a block threshold, same data as the baseline.
+- `notebooks/tfidf_harmless.ipynb` (M2 A, part 2): same settings, plus the harmless prompts. Includes a "shortcut check" (casual vs. formal prompts).
+
 **Rules for every model**
 1. Train only on `train`.
 2. Tune hyperparameters, thresholds and compare models only on `validation`.
