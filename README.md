@@ -314,6 +314,23 @@ Choose one of the following options.
 Activating the environment in the terminal does not automatically
 select it as the notebook's kernel.
 
+### 7b. Connect to the Shared MLflow Server (DagsHub)
+
+Our MLflow runs are stored on a shared server on [DagsHub](https://dagshub.com), so the whole team
+sees and compares the same runs. Without this setup, the notebooks fall back to a local `mlflow.db`.
+
+1. Create a free DagsHub account (sign in with GitHub) and ask the repo owner to add you as a
+   collaborator of the DagsHub repo.
+2. In DagsHub, go to **Settings → Tokens** and copy your access token.
+3. Copy `.env.example` to `.env` in the project folder and fill in the server URL, your DagsHub
+   user name and your token. `.env` is in `.gitignore`. **Never** put the token into a notebook.
+4. Check the connection:
+   ```bash
+   python src/check_mlflow.py
+   ```
+5. Run the notebooks as usual. The runs then appear in DagsHub under **Experiments**
+   (or in the MLflow UI via the **Remote → Experiments** button of the repo).
+
 ### 8. Finish Your Session and Deactivate the Environment
 
 Save your notebooks and shut down their running kernels.
