@@ -1,50 +1,309 @@
-# AIOps_PromptGuard
-PromptGuard is a machine learning project that checks employee prompts for sensitive information before they are sent to an external AI service.
+# PromptGuard
 
-## Goal
-Help IT security and compliance teams reduce accidental disclosure of personal data and credentials.
+![Python 3.14](https://img.shields.io/badge/python-3.14-blue)
+![License: MIT](https://img.shields.io/badge/license-MIT-green)
 
-## How it works
-The system detects sensitive text and applies a defined policy to return:
+PromptGuard checks employee prompts for sensitive information **before** they are sent to an external
+AI service. It detects personal data and credentials and returns one of three decisions:
 
-- **Allow:** No relevant sensitive information detected.
-- **Warn:** Review or edit the prompt before sending.
-- **Block:** Content violates the defined policy.
+| Decision | Meaning | Example |
+|---|---|---|
+| **allow** | No relevant sensitive information | "Summarise the meeting notes in 5 bullet points." |
+| **warn** | Personal data: review or edit the prompt before sending | a name, e-mail address, phone number or postal address |
+| **block** | Secrets or financial / government identifiers | a password, PIN, IBAN or credit card number |
+
+**Goal:** help IT security and compliance teams reduce accidental disclosure of personal data and
+credentials, with a focus on **German** companies.
+
+## Table of contents
+
+1. [Project approach](#project-approach)
+2. [Current status and results](#current-status-and-results)
+3. [Repository structure](#repository-structure)
+4. [Getting started](#getting-started)
+5. [Data, policy and split](#data-policy-and-split)
+6. [Rules for training and evaluation](#rules-for-training-and-evaluation)
+7. [Experiment tracking with MLflow](#experiment-tracking-with-mlflow)
+8. [Troubleshooting](#troubleshooting)
+9. [License and data sources](#license-and-data-sources)
 
 ## Project approach
-1. Prepare selected categories from datasets. (**ai4privacy/pii-masking-200k** ...)
-2. Build a regex and TF-IDF Logistic Regression baseline for emails, phone numbers and bank details.
-3. Train and evaluate a small Named Entity Recognition (NER) model. (And try other models for comparison) 
-4. Track experiments with **MLflow**.
-5. Expose the selected model through **FastAPI**.
 
-## Evaluation
-Compare detection quality, missed sensitive content, false alarms and response times.
+1. **Data:** prepare the multilingual PII dataset `ai4privacy/pii-masking-200k` (de, en, fr, it) and map
+   every PII label to allow / warn / block with a policy file.
+2. **Baselines:** a regex baseline and a TF-IDF + Logistic Regression classifier.
+3. **Better models:** compare further classifiers and a small Named Entity Recognition (NER) model.
+4. **Tracking:** log every experiment with **MLflow** on a shared server.
+5. **Deployment:** expose the selected model through a **FastAPI** service.
 
-## Tech stack
-Python; Jupyter; Hugging Face; MLflow; FastAPI; GitHub
+We compare models on detection quality (especially missed block prompts), false alarms on harmless
+prompts and response time.
 
-## Data, Policy and Split
+**Project targets** (on the validation set):
+
+| Metric | Target |
+|---|---|
+| Recall block (share of block prompts that are blocked) | ≥ 95 % |
+| False block rate on harmless (allow) prompts | ≤ 5 % |
+| Response time (95th percentile) | < 100 ms |
+
+**Tech stack:** Python 3.14 · Jupyter · scikit-learn · Hugging Face · MLflow (DagsHub) · FastAPI · GitHub
+
+## Current status and results
+
+| Milestone | Content | Status |
+|---|---|---|
+| M1 | Dataset, policy, fixed train / validation / test split | done |
+| M2 A | Baselines (regex, TF-IDF + LogReg), tuning, harmless prompts | done |
+| M2 B / C | Further classifiers, NER model | in progress |
+| M3 – M5 | API, final evaluation on the test set | planned |
+
+Results on the validation set (all languages):
+
+| Model | Notebook | Macro F1 | Recall block | Recall block (de) | Latency p95 |
+|---|---|---|---|---|---|
+| Regex baseline | [`baseline_regex.ipynb`](notebooks/baseline_regex.ipynb) | 0.222 | 0.126 | 0.131 | 0.08 ms |
+| TF-IDF + LogReg baseline | [`baseline_tfidf_logreg.ipynb`](notebooks/baseline_tfidf_logreg.ipynb) | 0.870 | 0.918 | 0.912 | 1.3 ms |
+| + tuned (C = 30, block threshold 0.2) | [`tfidf_tuning.ipynb`](notebooks/tfidf_tuning.ipynb) | 0.864 | **0.955** | | |
+| + harmless prompts in training | [`tfidf_harmless.ipynb`](notebooks/tfidf_harmless.ipynb) | 0.875 | **0.954** | 0.956 | 5.2 ms |
+
+Adding harmless prompts raised the share of correctly allowed real harmless prompts from 41 % to 92 %,
+and accuracy on our own 200 German test prompts from 65 % to 79 %.
+Details: [`reports/`](reports/) and the conclusion section of each notebook.
+
+## Repository structure
+
+```text
+AIOps_PromptGuard/
+├── app/                    FastAPI service (planned)
+├── config/
+│   └── policy.yaml         PII label → allow / warn / block
+├── data/                   datasets (only splits.csv and own_prompts.csv are in Git)
+│   ├── splits.csv          fixed train / validation / test split
+│   └── own_prompts.csv     200 hand-written German test prompts
+├── models/                 trained models (*.joblib, not in Git)
+├── notebooks/              data preparation and experiments
+├── reports/                result tables and data checks
+├── scripts/                one-off analysis scripts (e.g. check_harmless.py)
+├── src/                    shared Python code
+│   ├── data_utils.py       load splits, policy, fingerprints
+│   ├── download_data.py    download ai4privacy dataset
+│   ├── harmless_data.py    build harmless prompts (oasst1 + templates)
+│   ├── make_splits.py      create / verify the split
+│   └── check_mlflow.py     test the connection to the MLflow server
+├── tests/                  unit tests (planned)
+├── .env.example            template for the MLflow credentials
+├── .python-version         Python version of the project (3.14)
+├── requirements.txt        Python packages
+└── LICENSE
+```
+
+## Getting started
+
+Every team member creates their **own** virtual environment (`.venv`) on their computer. It keeps the
+packages of this project separate from other projects. The `.venv` folder is never committed to Git.
+
+The steps work on **Windows** and **macOS**. Where the commands differ, both versions are shown.
+
+### 1. Install the prerequisites
+
+| Tool | Version | Download |
+|---|---|---|
+| Python | **3.14** (any 3.14.x) | https://www.python.org/downloads/ |
+| Git | any recent version | https://git-scm.com/downloads |
+| VS Code | with the **Python** and **Jupyter** extensions (Microsoft) | https://code.visualstudio.com/ |
+
+> **Why exactly Python 3.14?** Different Python and package versions can give slightly different
+> model results. With the same version, everybody gets the same numbers from the same notebook.
+
+**Windows:** run the Python installer from python.org. In the installer, keep the option for the
+**`py` launcher** enabled. Then check in a new terminal (PowerShell):
+
+```powershell
+py -3.14 --version
+```
+
+**macOS:** run the Python installer from python.org (or `brew install python@3.14`). Then check:
+
+```bash
+python3.14 --version
+```
+
+Both commands should print `Python 3.14.x`.
+
+### 2. Get the project
+
+Clone the repository (only once) and open a terminal in the project folder:
+
+```bash
+git clone https://github.com/annihlj/AIOps_PromptGuard.git
+cd AIOps_PromptGuard
+```
+
+If you already have the project, get the latest version instead:
+
+```bash
+git pull
+```
+
+### 3. Create the virtual environment
+
+Run this once, in the project folder:
+
+**Windows (PowerShell):**
+
+```powershell
+py -3.14 -m venv .venv
+```
+
+**macOS:**
+
+```bash
+python3.14 -m venv .venv
+```
+
+This creates the folder `.venv` inside the project folder.
+
+> **Already have a `.venv` with another Python version?** Delete it and create it again:
+> close VS Code and all notebooks first, then
+> Windows: `Remove-Item -Recurse -Force .venv` · macOS: `rm -rf .venv`
+> and run the command above. Afterwards continue with steps 4 – 6.
+
+### 4. Activate the virtual environment
+
+Do this in **every new terminal** you use for this project.
+
+**Windows (PowerShell):**
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+**Windows (Command Prompt):**
+
+```cmd
+.venv\Scripts\activate.bat
+```
+
+**macOS:**
+
+```bash
+source .venv/bin/activate
+```
+
+Your terminal prompt now starts with `(.venv)`. Check that the right Python is used:
+
+```bash
+python --version
+python -c "import sys; print(sys.executable)"
+```
+
+The first line must show `Python 3.14.x`, the second a path **inside** the project's `.venv` folder.
+
+> From here on, Windows and macOS use the same `python` commands, as long as the environment is active.
+
+### 5. Install the packages
+
+```bash
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
+
+Run the second command again whenever `requirements.txt` changes (for example after a `git pull`).
+
+### 6. Register the environment as a notebook kernel
+
+A kernel is the Python process that runs the code cells of a notebook. Register the environment once
+(and again after you re-create `.venv`):
+
+```bash
+python -m ipykernel install --user --name promptguard --display-name "Python 3.14 (PromptGuard)"
+```
+
+### 7. Download and prepare the data
+
+The data files are not stored in Git. Download and build them once:
+
+```bash
+python src/download_data.py      # ai4privacy dataset into data/ (files that exist are skipped)
+python src/harmless_data.py      # harmless prompts into data/harmless_prompts.csv (downloads oasst1, ~40 MB)
+python src/make_splits.py        # only checks the existing split, prints fingerprint 6afd6a257de1
+```
+
+`harmless_data.py` must print the fingerprint **`9545499b98fa`**. If you see another value, tell the team
+before training a model.
+
+### 8. Connect to the shared MLflow server (DagsHub)
+
+All MLflow runs are stored on a shared server on [DagsHub](https://dagshub.com), so the whole team sees
+the same experiments. Without this step the notebooks still work, but the runs are only saved locally
+(`mlflow.db`).
+
+1. Create a free DagsHub account (sign in with GitHub) and ask the repo owner to add you as a
+   collaborator.
+2. In DagsHub, open **Settings → Tokens** and copy your access token.
+3. **Copy** (do not rename) `.env.example` to `.env` and fill in your DagsHub user name and token.
+   `.env` is in `.gitignore`. **Never** put the token into a notebook or into `.env.example`.
+4. Test the connection:
+
+   ```bash
+   python src/check_mlflow.py
+   ```
+
+   Expected output: `Connection OK.`
+
+### 9. Run the notebooks
+
+1. Open the **project folder** in VS Code (*File → Open Folder*).
+2. Open a notebook in `notebooks/`.
+3. Click **Select Kernel** (top right) → **Jupyter Kernel** → **Python 3.14 (PromptGuard)**.
+   Alternatively choose **Python Environments** → the project's `.venv`.
+4. Run the cells from top to bottom (**Run All**, or `Shift + Enter` cell by cell).
+
+> Check the kernel for **each** notebook. Activating `.venv` in the terminal does not select it as
+> the notebook kernel.
+
+Run the experiment notebooks in this order, because later notebooks load models from earlier ones:
+
+1. `preperation.ipynb` – data analysis
+2. `baseline_regex.ipynb`
+3. `baseline_tfidf_logreg.ipynb`
+4. `tfidf_tuning.ipynb` (saves `models/tfidf_logreg_tuned.joblib`)
+5. `tfidf_harmless.ipynb` (needs the model from step 4)
+
+### 10. End your session
+
+Save the notebooks, then deactivate the environment in the terminal:
+
+```bash
+deactivate
+```
+
+## Data, policy and split
 
 ### Dataset
-[`ai4privacy/pii-masking-200k`](https://huggingface.co/datasets/ai4privacy/pii-masking-200k),
-the German, English, French and Italian files (209,261 synthetic texts, 56 PII labels).
-The first analysis is in [`notebooks/preperation.ipynb`](notebooks/preperation.ipynb).
+
+[`ai4privacy/pii-masking-200k`](https://huggingface.co/datasets/ai4privacy/pii-masking-200k): the German,
+English, French and Italian files (209,261 synthetic texts, 56 PII labels). The first analysis is in
+[`notebooks/preperation.ipynb`](notebooks/preperation.ipynb).
 
 ### Policy: PII label → allow / warn / block
-[`config/policy.yaml`](config/policy.yaml) maps every PII label to a decision
-(current version is a proposal):
 
-- **block:** credentials and financial / government identifiers (password, PIN, credit card, IBAN, account number, SSN, ...)
-- **warn:** data that identifies or locates a person (names, e-mail, phone, address, date of birth, IP, ...)
+[`config/policy.yaml`](config/policy.yaml) maps every PII label to a decision (version 0.1, proposal):
+
+- **block:** credentials and financial / government identifiers (password, PIN, credit card, IBAN,
+  account number, SSN, ...)
+- **warn:** data that identifies or locates a person (names, e-mail, phone, address, date of birth,
+  IP, ...)
 - **allow:** context data that does not identify a person on its own (date, amount, job title, city, ...)
 
 A text gets the **most severe** decision of all its PII entities (block > warn > allow).
 Result on the full dataset: 7.8 % allow, 60.7 % warn, 31.4 % block.
 
 ### Train / validation / test split
+
 All models use the **same fixed split**, stored in [`data/splits.csv`](data/splits.csv)
-(columns `id`, `split`; committed to Git).
+(columns `id`, `split`).
 
 | Rule | Value |
 |---|---|
@@ -55,31 +314,42 @@ All models use the **same fixed split**, stored in [`data/splits.csv`](data/spli
 | Seed | 42 |
 | Fingerprint | `6afd6a257de1` (SHA-256 of `splits.csv`, first 12 characters) |
 
-Resulting sizes: train 146,455 · validation 31,380 · test 31,385.
-Every language × decision group has the same share in all three splits.
+Resulting sizes: train 146,455 · validation 31,380 · test 31,385. Every language × decision group has
+the same share in all three splits.
 
-The split was created with `python src/make_splits.py`. The script is
-deterministic (running it again gives the same fingerprint) and refuses to
-overwrite an existing `splits.csv` unless `--force` is passed.
-**Do not re-create the split** unless the whole team agrees. Otherwise results
-of different models are no longer comparable.
+The split was created with `python src/make_splits.py`. The script is deterministic and refuses to
+overwrite an existing `splits.csv` unless `--force` is passed. **Do not re-create the split** unless the
+whole team agrees, otherwise results of different models are no longer comparable. The split is
+independent of the policy: if labels in `policy.yaml` move, only the `decision` column changes.
 
-> The split is fixed independently of the policy. If labels in `policy.yaml`
-> are moved later, the `decision` column changes, but the split stays the same.
+### Harmless prompts and own test prompts
 
-### Using the data for model training
-Load the data **only** through [`src/data_utils.py`](src/data_utils.py).
-From a notebook inside `notebooks/`:
+The ai4privacy dataset contains **no text without personal data**, so a model trained only on it never
+sees a normal, harmless business prompt. We therefore use two extra files:
+
+| File | Content | Used for |
+|---|---|---|
+| `data/harmless_prompts.csv` (built by `src/harmless_data.py`, not in Git) | PII-free prompts with decision `allow`: first user questions from [oasst1](https://huggingface.co/datasets/OpenAssistant/oasst1) (de/en/fr/it, filtered for personal data) + company-style template prompts | oasst1: 70 / 15 / 15 train / validation / test (deterministic, by conversation). Templates: train only |
+| `data/own_prompts.csv` (in Git) | 200 hand-written realistic German prompts: 80 allow, 60 warn, 60 block, column `style` = formal / casual | **evaluation only, never train or tune on them** |
+
+A quality check of the harmless prompts (private names, number filter, overlap with our test prompts,
+distribution) is in [`reports/harmless_check.md`](reports/harmless_check.md)
+(script: `scripts/check_harmless.py`).
+
+### Loading the data in code
+
+Load the data **only** through [`src/data_utils.py`](src/data_utils.py). From a notebook in `notebooks/`:
 
 ```python
 import sys
 sys.path.append("../src")
 from data_utils import load_all_splits, split_fingerprint
+from harmless_data import load_harmless, harmless_fingerprint
 
-splits = load_all_splits()          # dict with "train", "validation", "test"
-train = splits["train"]
-val   = splits["validation"]
-print("split fingerprint:", split_fingerprint())
+splits = load_all_splits()               # dict with "train", "validation", "test"
+train, val = splits["train"], splits["validation"]
+harmless_train = load_harmless("train")
+print(split_fingerprint(), harmless_fingerprint())
 ```
 
 Each split is a DataFrame with all original dataset columns plus `decision`:
@@ -92,276 +362,56 @@ Each split is a DataFrame with all original dataset columns plus `decision`:
 | `mbert_text_tokens`, `mbert_bio_labels` | token-level BIO labels for NER models |
 | `language` | per-language evaluation (especially `de`) |
 
-Other helpers: `load_split("train")` loads a single split,
-`load_policy()` / `prompt_decision(privacy_mask, policy)` turn detected PII labels
-into a decision. Use the same function to turn NER predictions into allow / warn / block.
+Other helpers: `load_split("train")` loads a single split; `load_policy()` and
+`prompt_decision(privacy_mask, policy)` turn detected PII labels into a decision. Use the same function
+to turn NER predictions into allow / warn / block.
 
-### Extra harmless prompts and own test prompts (added when tuning tfidf)
+## Rules for training and evaluation
 
-The ai4privacy dataset has **no text without personal data**, so the model never learned what a normal,
-harmless business prompt looks like. We therefore use two extra files:
-
-| File | Content | Used for |
-|---|---|---|
-| `data/harmless_prompts.csv` (built by `python src/harmless_data.py`, not in Git) | PII-free prompts, decision `allow`: first user questions from [oasst1](https://huggingface.co/datasets/OpenAssistant/oasst1) (Apache-2.0, de/en/fr/it, filtered for personal data) + company-style template prompts | oasst1: 70 / 15 / 15 train / validation / test (deterministic, by conversation). Templates: train only |
-| `data/own_prompts.csv` (in Git) | 200 hand-written realistic German prompts (our product targets German companies): 80 allow, 60 warn, 60 block, column `style` = formal / casual | **Evaluation only. Never train or tune on these prompts.** |
-
-Rules:
-- A prompt is either training data or test data, never both. `harmless_data.py` removes any prompt that also appears in `own_prompts.csv`.
-- Log `harmless_fingerprint()` in MLflow together with `split_fingerprint()`.
-- The test parts are used once, at the end (Milestone 5).
-
-Experiments:
-- `notebooks/tfidf_tuning.ipynb` (M2 A, part 1): higher `C` and a block threshold, same data as the baseline.
-- `notebooks/tfidf_harmless.ipynb` (M2 A, part 2): same settings, plus the harmless prompts. Includes a "shortcut check" (casual vs. formal prompts).
-
-**Rules for every model**
 1. Train only on `train`.
-2. Tune hyperparameters, thresholds and compare models only on `validation`.
-3. Evaluate on `test` **once**, at the end, for the final chosen models.
-4. Log `split_fingerprint()` and the policy version with every MLflow run.
-5. Report results overall **and** for `language == "de"`.
-6. Realistic German prompts (written by us) are kept as a separate, extra test set
-   and are not part of this split.
-
-## Setting Up the Environment and Running the Notebooks
-
-Our Jupyter notebooks (`.ipynb` files) use a virtual Python environment
-(venv). This keeps the project's Python packages separate from other projects.
-
-Each developer creates their own environment locally.
-The instructions below support Windows and macOS.
-
-### 1. Prerequisites
-
-- Install Python: https://www.python.org/downloads/
-- Use the Python version agreed upon for this project.
-- Download or clone the project, including `requirements.txt`.
-- Use either VS Code or JupyterLab to run the notebooks.
-
-Check whether Python is installed:
-
-**Windows:**
-
-```powershell
-py --version
-```
-
-If `py` is unavailable, try `python --version`.
-In that case, also use `python` instead of `py` when creating the environment.
-
-**macOS:**
-
-```bash
-python3 --version
-```
-
-### 2. Open a Terminal in the Project Folder
-
-Open a terminal and navigate to the main project folder containing
-`requirements.txt`:
-
-```bash
-cd "path/to/AIOps_PromptGuard"
-```
-
-Replace the example path with your actual project path.
-
-### 3. Create the Virtual Environment
-
-You only need to do this once when setting up the project.
-
-**Windows:**
-
-```powershell
-py -m venv .venv
-```
-
-**macOS:**
-
-```bash
-python3 -m venv .venv
-```
-
-This creates a folder named `.venv` inside the project folder.
-
-> This guide uses `.venv` as the environment folder name.
-> If your existing environment is named `venv`, replace `.venv`
-> with `venv` in the commands below.
-
-### 4. Activate the Virtual Environment
-
-Activate the environment in each new terminal session you use for this project.
-
-**Windows — PowerShell:**
-
-```powershell
-.\.venv\Scripts\Activate.ps1
-```
-
-**Windows — Command Prompt (CMD):**
-
-```cmd
-.venv\Scripts\activate.bat
-```
-
-**macOS — Terminal:**
-
-```bash
-source .venv/bin/activate
-```
-
-Once activated, `(.venv)` usually appears at the beginning of the terminal prompt.
-
-Check which Python installation is being used:
-
-```bash
-python -c "import sys; print(sys.executable)"
-```
-
-The output should point to Python inside this project's `.venv` folder.
-
-> From this point onward, Windows and macOS use the same `python`
-> commands, provided the virtual environment is activated.
-
-### 5. Install the Project Dependencies
-
-With the virtual environment activated, run the following command
-from the project folder:
-
-```bash
-python -m pip install -r requirements.txt
-```
-
-This installs the packages listed in `requirements.txt` into the environment.
-
-If `requirements.txt` changes later, run the same command again.
-
-### 5b. Download the Dataset
-
-The data files are not stored in Git (they are too large). Download them
-from Hugging Face (`ai4privacy/pii-masking-200k`) into the `data/` folder:
-
-```bash
-python src/download_data.py
-```
-
-Files that already exist are skipped.
-
-##### Dataset Documentation
-
-See the original
-[dataset card](https://huggingface.co/datasets/ai4privacy/pii-masking-200k)
-for details about the dataset, its structure, and its usage terms.
-
-### 5c. Check the Train / Validation / Test Split
-
-The split file `data/splits.csv` is part of the repository. Check that you have it:
-
-```bash
-python src/make_splits.py
-```
-
-The script only prints the existing fingerprint (`6afd6a257de1`) and does not
-change anything. See [Train / validation / test split](#train--validation--test-split).
-
-### 6. Register the Environment as a Notebook Kernel
-
-A kernel is the Python process that executes a notebook's code cells.
-
-With the virtual environment activated, install the kernel package:
-
-```bash
-python -m pip install ipykernel
-```
-
-Then register the environment:
-
-```bash
-python -m ipykernel install --user --name project-venv --display-name "Python (Project Venv)"
-```
-
-The environment will appear in the kernel selection menu as
-**Python (Project Venv)**.
-
-Registration is normally only required once.
-Repeat the registration if you delete or recreate the environment,
-or move the project folder.
-
-> If you work on multiple projects, use a unique kernel name and display
-> name for each project instead of `project-venv` and `Python (Project Venv)`.
-
-### 7. Run the Notebooks
-
-Choose one of the following options.
-
-#### VS Code
-
-1. Install Microsoft's **Python** and **Jupyter** extensions in VS Code.
-2. Open the entire project folder in VS Code.
-3. Open the `.ipynb` file you want to run.
-4. Click **Select Kernel** in the top-right corner of the notebook.
-5. Select **Python (Project Venv)**. If necessary, first select
-   **Select Another Kernel → Jupyter Kernels**.
-6. Alternatively, select **Python Environments** and choose this project's
-   `.venv` directly.
-7. Run the cells from top to bottom:
-   - Click the play button next to a code cell.
-   - Press `Shift + Enter` to run the current cell.
-   - Click **Run All** to execute the entire notebook.
-
-**Important:** Check the selected kernel for each notebook.
-Activating the environment in the terminal does not automatically
-select it as the notebook's kernel.
-
-### 7b. Connect to the Shared MLflow Server (DagsHub)
-
-Our MLflow runs are stored on a shared server on [DagsHub](https://dagshub.com), so the whole team
-sees and compares the same runs. Without this setup, the notebooks fall back to a local `mlflow.db`.
-
-1. Create a free DagsHub account (sign in with GitHub) and ask the repo owner to add you as a
-   collaborator of the DagsHub repo.
-2. In DagsHub, go to **Settings → Tokens** and copy your access token.
-3. Copy `.env.example` to `.env` in the project folder and fill in the server URL, your DagsHub
-   user name and your token. `.env` is in `.gitignore`. **Never** put the token into a notebook.
-4. Check the connection:
-   ```bash
-   python src/check_mlflow.py
-   ```
-5. Run the notebooks as usual. The runs then appear in DagsHub under **Experiments**
-   (or in the MLflow UI via the **Remote → Experiments** button of the repo).
-
-### 8. Finish Your Session and Deactivate the Environment
-
-Save your notebooks and shut down their running kernels.
-
-If you are using JupyterLab, stop the server by pressing `Ctrl + C`
-in its terminal and confirm if prompted.
-
-Then deactivate the virtual environment:
-
-```bash
-deactivate
-```
-
-> `deactivate` only deactivates the environment in the current terminal.
-> It does not shut down notebook kernels that are already running.
-
-### Team Collaboration Notes
-
-- Each developer creates their own local virtual environment.
-- Share notebooks and `requirements.txt` through Git.
-- Do not commit `.venv` or copy it between computers.
-- Use matching Python and package versions where possible.
-  Any operating-system-specific dependencies must account for
-  both Windows and macOS.
-- Document required datasets and where they should be stored.
-- Include `ipykernel` in the project's dependency list.
-  Include `jupyterlab` too if browser-based execution is part of the setup.
-
-Add these entries to `.gitignore` if they are not already present:
-
-```gitignore
-.venv/
-.ipynb_checkpoints/
-```
+2. Tune hyperparameters and thresholds and compare models only on `validation`.
+3. Evaluate on `test` **once**, at the end, for the final models (Milestone 5).
+4. `data/own_prompts.csv` is an extra test set: only look at the results, never tune on them.
+5. Log `split_fingerprint()`, `harmless_fingerprint()` and the policy version with every MLflow run.
+6. Report results overall **and** for `language == "de"`.
+7. Use Python 3.14 and `requirements.txt`, so results are reproducible across the team.
+
+## Experiment tracking with MLflow
+
+- All notebooks log to the shared DagsHub server when `.env` is set up (see
+  [step 8](#8-connect-to-the-shared-mlflow-server-dagshub)), otherwise to a local `mlflow.db`.
+- All runs belong to the experiment **`promptguard`**. Each run logs parameters, validation metrics and
+  the fingerprints of the data it used.
+- View the runs in DagsHub under **Experiments**, or locally with
+  `mlflow ui --backend-store-uri sqlite:///mlflow.db`.
+
+## Troubleshooting
+
+| Problem | Solution |
+|---|---|
+| `py` is not found (Windows) | Re-run the Python installer and enable the `py` launcher, or use the full path to `python.exe` of Python 3.14. |
+| PowerShell: *"running scripts is disabled on this system"* when activating | Run once: `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`, then activate again. |
+| `python --version` does not show 3.14 inside `.venv` | The environment was created with another Python. Re-create it (step 3). |
+| `ModuleNotFoundError` in a notebook | The notebook uses the wrong kernel. Select **Python 3.14 (PromptGuard)** (step 9). |
+| `FileNotFoundError` for a data file | Run the commands in step 7. |
+| `tfidf_harmless.ipynb` stops because a model is missing | Run `tfidf_tuning.ipynb` first. |
+| `check_mlflow.py`: `MLFLOW_TRACKING_URI is not set` | `.env` is missing or empty (step 8). |
+
+## License and data sources
+
+The project's own code and data (e.g. `src/`, `scripts/`, `notebooks/`, `app/`, `config/policy.yaml`,
+`data/own_prompts.csv`, `data/splits.csv`) are licensed under the [MIT License](LICENSE).
+
+Third-party data is **not** part of this repository (`data/*` is in `.gitignore`). It is downloaded by
+our scripts and keeps its own license:
+
+| Dataset | Used for | License | Downloaded by |
+|---|---|---|---|
+| [ai4privacy/pii-masking-200k](https://huggingface.co/datasets/ai4privacy/pii-masking-200k) | main training / validation / test data | Custom Ai4Privacy license ([license.md](https://huggingface.co/datasets/ai4privacy/pii-masking-200k/blob/main/license.md)): free for individuals, organisations with up to 3 staff and non-profits; derivatives must not be distributed, sold, re-licensed or sublicensed. Copyright © 2023 Ai4Privacy | `src/download_data.py` |
+| [OpenAssistant/oasst1](https://huggingface.co/datasets/OpenAssistant/oasst1) | harmless prompts | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) | `src/harmless_data.py` |
+
+- `data/splits.csv` only contains row ids and split names, no texts from ai4privacy.
+- Models trained on ai4privacy (e.g. `models/*.joblib`, MLflow artifacts) are covered by the ai4privacy
+  terms, not by our MIT license. Do not publish them without checking those terms.
+- A productive use of PromptGuard in a company with more than three employees would need a commercial
+  Ai4Privacy license or retraining on freely licensed data.

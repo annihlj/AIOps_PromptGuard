@@ -1,9 +1,17 @@
+# Python version for the whole team: 3.14 (see .python-version and README "Getting started")
+# Install with:  python -m pip install -r requirements.txt
+
+# Data and notebooks
 pandas
+pyarrow
 matplotlib
 ipykernel
-huggingface_hub
 pyyaml
+
+# Data download
+huggingface_hub
+
+# Models and experiment tracking
 scikit-learn
 mlflow
-pyarrow # added when tuning tfidf
-python-dotenv  # added when tuning tfidf
+python-dotenv
