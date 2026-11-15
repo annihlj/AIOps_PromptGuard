@@ -14,7 +14,8 @@ all with the decision "allow". It comes from two sources:
    Real questions that real people typed into a chat assistant, in German,
    English, French and Italian. We only take the FIRST message of each
    conversation (what a user asks first) and drop messages that look like they
-   contain personal data (see _looks_like_pii).
+   contain personal data (see _looks_like_pii) or a person's name (see
+   _name_reason, added after a policy check, version 2 of this file).
    -> split 70 / 15 / 15 into train / validation / test.
 
 2. Company-style templates (written by our team, see TEMPLATES_DE / _EN)
@@ -22,6 +23,34 @@ all with the decision "allow". It comes from two sources:
    harmless details (departments, dates, amounts, cities).
    -> ONLY used for training. They are generated, so measuring on them would be
    too easy. Validation and test only contain real human prompts (oasst1).
+
+WHY NAMES ARE REMOVED (policy v0.1)
+-----------------------------------
+Every prompt in this file gets the decision "allow". That is only correct if the
+prompt contains nothing that config/policy.yaml calls warn or block.
+FIRSTNAME, MIDDLENAME and LASTNAME are "warn" in the policy, with no exception
+for public figures or fictional characters. A check of the first version showed
+that about 5 % of the oasst1 prompts contained a name (e.g. "Entschuldigungsemail
+an Frau Richter", "Wer war Otto von Bismarck?") and were still labelled allow.
+That teaches the model "name = allow", the opposite of our policy.
+
+We REMOVE those prompts instead of relabelling them as warn: we only need clean
+allow examples, and checking every borderline case by hand is not worth it.
+A prompt is removed if one of three checks fires (see _name_reason):
+  1. "name list": it contains a first, middle or last name from our own dataset
+     (all FIRSTNAME / MIDDLENAME / LASTNAME values in ai4privacy's privacy_mask)
+  2. "address":   a form of address or self-introduction ("Frau Richter",
+     "Mr Smith", "my name is", "ich heiße", "je m'appelle", "mi chiamo")
+  3. "full name": two capitalised words in a row ("Warren Buffett"), ONLY for
+     English, French and Italian. In German every noun is capitalised, so this
+     check would wrongly remove a third of the German prompts.
+Words at the very start of a sentence are ignored by checks 1 and 3
+("Will you ...", "Mark the ..."), because there every word is capitalised.
+The filter removes rather too much than too little: losing a few clean prompts
+does no harm, keeping a prompt with a name does.
+
+Every removed prompt is written to data/harmless_removed.csv (with the reason),
+and 50 random kept prompts are printed for a manual spot check.
 
 THE RULES (same spirit as data/splits.csv)
 -------------------------------------------
@@ -46,6 +75,7 @@ from __future__ import annotations
 
 import hashlib
 import itertools
+import json
 import random
 import re
 from pathlib import Path
@@ -56,6 +86,13 @@ PROJECT_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_DIR / "data"
 OUTPUT_PATH = DATA_DIR / "harmless_prompts.csv"
 OWN_PROMPTS_PATH = DATA_DIR / "own_prompts.csv"
+REMOVED_PATH = DATA_DIR / "harmless_removed.csv"     # removed prompts + reason, for review (not in Git)
+
+# The four ai4privacy files (same names as in src/data_utils.py), used to build the name list
+AI4PRIVACY_FILES = ["german_pii_52k.jsonl", "english_pii_43k.jsonl",
+                    "french_pii_62k.jsonl", "italian_pii_50k.jsonl"]
+NAME_LABELS = {"FIRSTNAME", "MIDDLENAME", "LASTNAME"}     # the "name" labels of policy.yaml (all warn)
+N_SPOT_CHECK = 50                                        # kept prompts printed for a manual check
 
 # oasst1 files on Hugging Face (repo "OpenAssistant/oasst1", folder data/)
 OASST_REPO = "OpenAssistant/oasst1"
@@ -103,6 +140,88 @@ def _bucket(key: str) -> str:
     if value < 85:
         return "validation"
     return "test"
+
+
+# =========================================================================== name filter
+# Words that are in the ai4privacy name list but are mostly normal words or months.
+# Without this list, e.g. every prompt with "April" or "August" would be removed.
+# If the spot check shows other such words, add them here.
+NOT_NAMES = {
+    "April", "June", "July", "August", "May", "Mai", "Juni", "Juli", "Avril", "Maggio", "Agosto",
+    "Will", "Mark", "Bill", "Art", "Rich", "Grant", "Chase", "Page", "Hope", "Faith", "Grace",
+    "Joy", "Sky", "Star", "Ray", "Rose", "Lily", "Ruby", "Amber", "Summer", "Winter", "Sommer",
+    "Dawn", "Iris", "Jade", "Pearl", "Ivy", "Daisy", "Olive", "Violet", "Holly", "Sunny", "Young",
+    "King", "Long", "Little", "White", "Black", "Brown", "Green", "Gray", "Grey", "Day", "Love",
+    "Paris", "Florence", "Victoria", "Sydney", "Berlin", "Wien", "Rom", "Roma",
+    # languages / nationalities and programming languages that are also surnames
+    "English", "German", "French", "Italian", "Spanish", "Roman", "Rust", "Swift", "Ruby",
+}
+
+# Check 2: a form of address followed by a capitalised word, or a self-introduction
+_ADDRESS_PATTERN = re.compile(
+    r"\b(?:Herrn?|Frau|Fräulein|Mr|Mrs|Ms|Miss|Dr|Prof|Monsieur|Madame|Mme|Mlle|Signor|Signora|Sig)\.?\s+[A-ZÄÖÜ][\w-]+"
+    r"|\b(?:my name is|i am called|ich heiße|ich heisse|mein name ist|je m'appelle|je m’appelle|mi chiamo|il mio nome è)\b",
+    re.IGNORECASE,
+)
+# All words with their position, so we can tell if a word starts a sentence
+_WORD = re.compile(r"[A-Za-zÀ-ÖØ-öø-ÿ]+(?:[-'][A-Za-zÀ-ÖØ-öø-ÿ]+)*")
+_SENTENCE_END = re.compile(r"[.!?:;\n\"'„“”«»()\[\]*#>-]\s*$")
+
+
+def _is_sentence_start(text: str, start: int) -> bool:
+    """True if the word at position `start` is the first word of the text or of a sentence."""
+    before = text[:start].rstrip(" \t")
+    return before == "" or bool(_SENTENCE_END.search(before))
+
+
+def load_name_list() -> set[str]:
+    """All first, middle and last names from the ai4privacy files.
+
+    We read the files line by line and only keep the name values, so this needs
+    very little memory (the full tables with all columns would need several GB).
+    """
+    names: set[str] = set()
+    for filename in AI4PRIVACY_FILES:
+        path = DATA_DIR / filename
+        if not path.exists():
+            raise FileNotFoundError(f"{path} is missing. Run `python src/download_data.py` first.")
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                for entity in json.loads(line).get("privacy_mask", []):
+                    if entity.get("label") in NAME_LABELS:
+                        # "Anna-Lena von Berg" -> "Anna", "Lena", "Berg" (each part on its own)
+                        for part in re.split(r"[\s-]+", str(entity.get("value", ""))):
+                            part = part.strip(".,'\"")
+                            # only real-looking names: at least 3 letters, starting with a capital letter
+                            if len(part) >= 3 and part.isalpha() and part[0].isupper():
+                                names.add(part)
+    return names - NOT_NAMES
+
+
+def _name_reason(text: str, language: str, names: set[str]) -> str | None:
+    """Returns why a prompt is removed ("name list: Marie", ...), or None if it may stay."""
+    # Check 2: form of address or self-introduction
+    match = _ADDRESS_PATTERN.search(text)
+    if match:
+        return f"address: {match.group(0)}"
+
+    words = list(_WORD.finditer(text))
+    for i, w in enumerate(words):
+        word = w.group(0)
+        if _is_sentence_start(text, w.start()):
+            continue                                  # "Will you ..." -> ignore sentence starts
+        # Check 1: word from our own name list (exact spelling, capitalised)
+        if word in names:
+            return f"name list: {word}"
+        # Check 3: two capitalised words in a row (not for German, see top of file)
+        if language != "de" and i + 1 < len(words):
+            nxt = words[i + 1]
+            gap = text[w.end():nxt.start()]
+            if (word[0].isupper() and word[1:].islower() and len(word) > 1
+                    and nxt.group(0)[0].isupper() and nxt.group(0)[1:].islower()
+                    and gap.strip() == ""):
+                return f"full name: {word} {nxt.group(0)}"
+    return None
 
 
 # =========================================================================== source 1: oasst1
@@ -238,6 +357,17 @@ def build() -> pd.DataFrame:
     n_pii = len(oasst)
     oasst = oasst.drop_duplicates("source_text")
 
+    # Name filter (policy: names are warn, so they cannot be in an allow-only file)
+    print("Building the name list from ai4privacy ...")
+    names = load_name_list()
+    print(f"  {len(names):,} different names")
+    oasst["removed_by"] = [_name_reason(t, l, names) for t, l in zip(oasst["source_text"], oasst["language"])]
+    removed = oasst[oasst["removed_by"].notna()].copy()
+    oasst = oasst[oasst["removed_by"].isna()].drop(columns="removed_by")
+    removed["check"] = removed["removed_by"].str.split(":").str[0]
+    removed[["source_text", "language", "check", "removed_by"]].sort_values(["check", "language"]).to_csv(
+        REMOVED_PATH, index=False)
+
     # Cap per language: shuffle once (deterministic with the seed), then keep the first N per language
     oasst = oasst.sample(frac=1, random_state=SEED).groupby("language").head(MAX_PER_LANGUAGE)
 
@@ -265,8 +395,22 @@ def build() -> pd.DataFrame:
     print(f"oasst1 first user messages ({'/'.join(LANGUAGES)}): {n_raw:,}")
     print(f"  after length filter ({MIN_CHARS}-{MAX_CHARS} chars): {n_len:,}")
     print(f"  after PII filter:                     {n_pii:,}")
+    print(f"  after name filter:                    {n_pii - len(removed):,} "
+          f"(removed {len(removed):,}, details in {REMOVED_PATH.name})")
+    print(pd.crosstab(removed["check"], removed["language"], margins=True))
+    print("  most frequent words from the name list:",
+          removed.loc[removed["check"] == "name list", "removed_by"].str.split(": ").str[1]
+          .value_counts().head(25).to_dict())
     print(f"template prompts (train only):          {len(templates):,}")
     print(pd.crosstab([df["source"], df["language"]], df["split"], margins=True))
+
+    # Spot check: read these prompts. Each one must be "allow" under config/policy.yaml.
+    # Write the number of policy errors you find into the README (that is our evidence).
+    spot = df[df["source"] == "oasst1"].sample(min(N_SPOT_CHECK, (df["source"] == "oasst1").sum()),
+                                                 random_state=SEED)
+    print(f"\nSPOT CHECK: {len(spot)} random kept oasst1 prompts (all must be allow under the policy)")
+    for i, (_, row) in enumerate(spot.iterrows(), 1):
+        print(f"{i:>3}. [{row['language']}] {row['source_text'][:150]!r}")
     return df
 
 
