@@ -64,11 +64,15 @@ Results on the validation set (all languages):
 |---|---|---|---|---|---|
 | Regex baseline | [`baseline_regex.ipynb`](notebooks/baseline_regex.ipynb) | 0.222 | 0.126 | 0.131 | 0.08 ms |
 | TF-IDF + LogReg baseline | [`baseline_tfidf_logreg.ipynb`](notebooks/baseline_tfidf_logreg.ipynb) | 0.870 | 0.918 | 0.912 | 1.3 ms |
-| + tuned (C = 30, block threshold 0.2) | [`tfidf_tuning.ipynb`](notebooks/tfidf_tuning.ipynb) | 0.864 | **0.955** | | |
-| + harmless prompts in training | [`tfidf_harmless.ipynb`](notebooks/tfidf_harmless.ipynb) | 0.875 | **0.954** | 0.956 | 5.2 ms |
+| + tuned (C = 30, block threshold 0.2) | [`tfidf_tuning.ipynb`](notebooks/tfidf_tuning.ipynb) | 0.864 | **0.955** | 0.954 | 5.8 ms |
+| + harmless prompts in training | [`tfidf_harmless.ipynb`](notebooks/tfidf_harmless.ipynb) | 0.856 | **0.953** | 0.944 | 3.3 ms |
 
-Adding harmless prompts raised the share of correctly allowed real harmless prompts from 41 % to 92 %,
-and accuracy on our own 200 German test prompts from 65 % to 79 %.
+Adding harmless prompts raised the share of correctly allowed real harmless prompts from 41% to 93%, and accuracy on our own 200 German test prompts from 65% to 78%.
+Latency values were measured on different laptops and are only roughly comparable; for the final model
+comparison all models are timed on the same machine.
+The downside: 20 of 60 warn prompts with names or e-mail addresses are now let through (before: 1),
+because the model links the short request style to "allow". Details and next step (plan B):
+conclusion of `tfidf_harmless.ipynb`.
 Details: [`reports/`](reports/) and the conclusion section of each notebook.
 
 ## Repository structure
@@ -230,7 +234,7 @@ python src/harmless_data.py      # harmless prompts into data/harmless_prompts.c
 python src/make_splits.py        # only checks the existing split, prints fingerprint 6afd6a257de1
 ```
 
-`harmless_data.py` must print the fingerprint **`9545499b98fa`**. If you see another value, tell the team
+`harmless_data.py` must print the fingerprint **`32d24c900fd7`**. If you see another value, tell the team
 before training a model.
 
 ### 8. Connect to the shared MLflow server (DagsHub)
@@ -332,6 +336,10 @@ sees a normal, harmless business prompt. We therefore use two extra files:
 | `data/harmless_prompts.csv` (built by `src/harmless_data.py`, not in Git) | PII-free prompts with decision `allow`: first user questions from [oasst1](https://huggingface.co/datasets/OpenAssistant/oasst1) (de/en/fr/it, filtered for personal data) + company-style template prompts | oasst1: 70 / 15 / 15 train / validation / test (deterministic, by conversation). Templates: train only |
 | `data/own_prompts.csv` (in Git) | 200 hand-written realistic German prompts: 80 allow, 60 warn, 60 block, column `style` = formal / casual | **evaluation only, never train or tune on them** |
 
+Prompts with person names are removed, because names are `warn` under policy v0.1 and the file may only
+contain `allow` prompts. Removed prompts and the reason are written to `data/harmless_removed.csv`
+(not in Git). Spot check of 50 kept prompts: __ policy errors found.
+
 A quality check of the harmless prompts (private names, number filter, overlap with our test prompts,
 distribution) is in [`reports/harmless_check.md`](reports/harmless_check.md)
 (script: `scripts/check_harmless.py`).
@@ -410,6 +418,9 @@ our scripts and keeps its own license:
 | [ai4privacy/pii-masking-200k](https://huggingface.co/datasets/ai4privacy/pii-masking-200k) | main training / validation / test data | Custom Ai4Privacy license ([license.md](https://huggingface.co/datasets/ai4privacy/pii-masking-200k/blob/main/license.md)): free for individuals, organisations with up to 3 staff and non-profits; derivatives must not be distributed, sold, re-licensed or sublicensed. Copyright © 2023 Ai4Privacy | `src/download_data.py` |
 | [OpenAssistant/oasst1](https://huggingface.co/datasets/OpenAssistant/oasst1) | harmless prompts | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) | `src/harmless_data.py` |
 
+- oasst1 citation: Köpf et al. (2023), "OpenAssistant Conversations: Democratizing Large Language Model
+  Alignment", arXiv:2304.07327. We only use the first user message of each conversation and filter it
+  (see `src/harmless_data.py`).
 - `data/splits.csv` only contains row ids and split names, no texts from ai4privacy.
 - Models trained on ai4privacy (e.g. `models/*.joblib`, MLflow artifacts) are covered by the ai4privacy
   terms, not by our MIT license. Do not publish them without checking those terms.
