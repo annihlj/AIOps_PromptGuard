@@ -64,15 +64,20 @@ Results on the validation set (all languages):
 |---|---|---|---|---|---|
 | Regex baseline | [`baseline_regex.ipynb`](notebooks/baseline_regex.ipynb) | 0.222 | 0.126 | 0.131 | 0.08 ms |
 | TF-IDF + LogReg baseline | [`baseline_tfidf_logreg.ipynb`](notebooks/baseline_tfidf_logreg.ipynb) | 0.870 | 0.918 | 0.912 | 1.3 ms |
-| + tuned (C = 30, block threshold 0.2) | [`tfidf_tuning.ipynb`](notebooks/tfidf_tuning.ipynb) | 0.864 | **0.955** | 0.954 | 5.8 ms |
-| + harmless prompts in training | [`tfidf_harmless.ipynb`](notebooks/tfidf_harmless.ipynb) | 0.856 | **0.953** | 0.944 | 3.3 ms |
+| TF-IDF + tuned (C = 30, block threshold 0.2) | [`tfidf_tuning.ipynb`](notebooks/tfidf_tuning.ipynb) | 0.864 | **0.955** | 0.953 | 2.9 ms |
+| TF-IDF + harmless prompts in training | [`tfidf_harmless.ipynb`](notebooks/tfidf_harmless.ipynb) | 0.844 | **0.953** | 0.944 | 2.8 ms |
+| Linear SVM tuned (C = 1.0, threshold -0.4) | [`svm_linear.ipynb`](notebooks/svm_linear.ipynb) | 0.865 | **0.956** | 0.955 | 3.4 ms |
+| Linear SVM + harmless prompts | [`svm_linear.ipynb`](notebooks/svm_linear.ipynb) | 0.862 | **0.957** | 0.956 | 3.5 ms |
 
-Adding harmless prompts raised the share of correctly allowed real harmless prompts from 41% to 93%, and accuracy on our own 200 German test prompts from 65% to 78%.
-Latency values were measured on different laptops and are only roughly comparable; for the final model
+- Adding harmless prompts raised the share of correctly allowed real harmless prompts from 41% to 93%, and accuracy on our own 200 German test prompts from 65% to 78%.
+- Latency values were measured on different laptops and are only roughly comparable; for the final model
 comparison all models are timed on the same machine.
-The downside: 20 of 60 warn prompts with names or e-mail addresses are now let through (before: 1),
+- The downside: 20 of 60 warn prompts with names or e-mail addresses are now let through (before: 1),
 because the model links the short request style to "allow". Details and next step (plan B):
 conclusion of `tfidf_harmless.ipynb`.
+- The SVM modell rows come from one comparison (chapter 9 of `svm_linear.ipynb`, saved in
+`reports/model_comparison_m2.csv`): same data, same code, latency measured on the same laptop.
+- The baseline latencies were measured on another laptop and are only roughly comparable.
 Details: [`reports/`](reports/) and the conclusion section of each notebook.
 
 ## Repository structure
