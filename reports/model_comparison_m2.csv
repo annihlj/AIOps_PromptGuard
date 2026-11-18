@@ -1,0 +1,14 @@
+,TF-IDF + LogReg tuned,TF-IDF + LogReg + harmless,SVM tuned,SVM + harmless
+block threshold,0.2,0.2,-0.4,-0.4
+ai4privacy recall block,0.955,0.953,0.956,0.957
+ai4privacy recall block (de),0.953,0.944,0.955,0.956
+ai4privacy macro F1,0.864,0.844,0.865,0.862
+ai4privacy allow texts blocked,0.022,0.031,0.044,0.045
+real harmless prompts allowed,41.1%,93.2%,28.2%,91.4%
+real harmless prompts blocked,4.5%,1.8%,4.1%,2.3%
+own prompts correct,130 of 200,155 of 200,127 of 200,156 of 200
+own: block prompts caught,56 of 60,55 of 60,57 of 60,56 of 60
+own: casual block prompts caught,12 of 15,13 of 15,12 of 15,12 of 15
+own: harmless prompts blocked,12 of 80,7 of 80,10 of 80,10 of 80
+own: warn prompts let through (allow),1 of 60,20 of 60,0 of 60,15 of 60
+response time p95 (ms),2.9,2.8,3.4,3.5
