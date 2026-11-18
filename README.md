@@ -58,7 +58,7 @@ prompts and response time.
 | M2 B / C | Further classifiers, NER model | in progress |
 | M3 – M5 | API, final evaluation on the test set | planned |
 
-Results on the validation set (all languages):
+Results on the ai4privacy validation set (31,380 texts, all languages):
 
 | Model | Notebook | Macro F1 | Recall block | Recall block (de) | Latency p95 |
 |---|---|---|---|---|---|
@@ -69,15 +69,15 @@ Results on the validation set (all languages):
 | Linear SVM tuned (C = 1.0, threshold -0.4) | [`svm_linear.ipynb`](notebooks/svm_linear.ipynb) | 0.865 | **0.956** | 0.955 | 3.4 ms |
 | Linear SVM + harmless prompts | [`svm_linear.ipynb`](notebooks/svm_linear.ipynb) | 0.862 | **0.957** | 0.956 | 3.5 ms |
 
-- Adding harmless prompts raised the share of correctly allowed real harmless prompts from 41% to 93%, and accuracy on our own 200 German test prompts from 65% to 78%.
-- Latency values were measured on different laptops and are only roughly comparable; for the final model
-comparison all models are timed on the same machine.
+- The last four rows come from one comparison (chapter 9 of `svm_linear.ipynb`, saved in
+`reports/model_comparison_m2.csv`): same data, same code, latency measured on the same laptop.
+The baseline latencies were measured on another laptop and are only roughly comparable.
+- Adding harmless prompts raised the share of correctly allowed real harmless prompts from 41% to 93%,
+and accuracy on our own 200 German test prompts from 65% to 78%.
 - The downside: 20 of 60 warn prompts with names or e-mail addresses are now let through (before: 1),
 because the model links the short request style to "allow". Details and next step (plan B):
 conclusion of `tfidf_harmless.ipynb`.
-- The SVM modell rows come from one comparison (chapter 9 of `svm_linear.ipynb`, saved in
-`reports/model_comparison_m2.csv`): same data, same code, latency measured on the same laptop.
-- The baseline latencies were measured on another laptop and are only roughly comparable.
+
 Details: [`reports/`](reports/) and the conclusion section of each notebook.
 
 ## Repository structure
@@ -343,7 +343,7 @@ sees a normal, harmless business prompt. We therefore use two extra files:
 
 Prompts with person names are removed, because names are `warn` under policy v0.1 and the file may only
 contain `allow` prompts. Removed prompts and the reason are written to `data/harmless_removed.csv`
-(not in Git). Spot check of 50 kept prompts: __ policy errors found.
+(not in Git). Spot check of 50 kept prompts: 2 policy errors found (famous people: Charles de Gaulle, Shakespeare).
 
 A quality check of the harmless prompts (private names, number filter, overlap with our test prompts,
 distribution) is in [`reports/harmless_check.md`](reports/harmless_check.md)
