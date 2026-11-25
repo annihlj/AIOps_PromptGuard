@@ -1,0 +1,15 @@
+# Extra packages for the encoder model (transformer + LoRA), on top of requirements.txt.
+# Only needed for src/measure_latency.py on the laptop and for the Colab notebook
+# notebooks/train_encoder_lora_colab.ipynb. The TF-IDF / SVM notebooks do not need them.
+#
+# Laptop (CPU-only torch, much smaller download than the GPU version):
+#   python -m pip install -r requirements-train.txt --extra-index-url https://download.pytorch.org/whl/cpu
+#
+# Colab: the notebook installs everything EXCEPT torch, because Colab already has a
+# torch version that matches its GPU driver (replacing it can break the GPU).
+# The torch version used in Colab is logged as a parameter in MLflow.
+
+torch==2.15.0
+transformers==5.24.1
+peft==0.22.0
+accelerate==1.16.0

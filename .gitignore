@@ -16,6 +16,8 @@ data/*
 
 # Trained models and MLflow runs (large, re-created by running the notebooks)
 models/*.joblib
+# Encoder model folders (LoRA adapter), they are stored in MLflow instead
+models/*/
 mlruns/
 mlflow.db
 
