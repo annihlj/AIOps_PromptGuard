@@ -17,3 +17,13 @@ huggingface_hub==2.4.0
 scikit-learn==1.9.1
 mlflow==3.18.0
 python-dotenv==1.2.4
+
+# Encoder model (transformer + LoRA): notebooks/train_encoder_lora_colab.ipynb, src/encoder_utils.py,
+# src/measure_latency.py. On Windows and macOS, torch from PyPI is the CPU version (enough for the laptop).
+# On Linux, pip would download the large GPU version; for the CPU version add
+#   --extra-index-url https://download.pytorch.org/whl/cpu
+# In Colab the notebook installs these packages WITHOUT torch (Colab's torch matches its GPU).
+torch==2.15.0
+transformers==5.24.1
+peft==0.22.0
+accelerate==1.16.0

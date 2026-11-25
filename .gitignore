@@ -18,6 +18,7 @@ data/*
 models/*.joblib
 # Encoder model folders (LoRA adapter), they are stored in MLflow instead
 models/*/
+models/*.zip
 mlruns/
 mlflow.db
 

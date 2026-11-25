@@ -11,8 +11,7 @@ laptop. To compare fairly, we measure the encoder in the same way:
       (val["source_text"].sample(1000, random_state=42)),
     - the time includes tokenizing + model + block rule (like pipeline.predict for TF-IDF).
 
-USAGE (from the project folder, venv activated, after
-       python -m pip install -r requirements-train.txt --extra-index-url https://download.pytorch.org/whl/cpu)
+USAGE (from the project folder, venv activated, after python -m pip install -r requirements.txt)
 
     # 1) download the trained model from MLflow (DagsHub) into models/xlmr_lora_benign/ and measure
     python src/measure_latency.py --download
