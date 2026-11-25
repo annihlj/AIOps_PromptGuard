@@ -77,6 +77,8 @@ and accuracy on our own 200 German test prompts from 65% to 78%.
 - The downside: 20 of 60 warn prompts with names or e-mail addresses are now let through (before: 1),
 because the model links the short request style to "allow". Details and next step (plan B):
 conclusion of `tfidf_harmless.ipynb`.
+- Adding harmless prompts raised the share of correctly allowed real harmless prompts from 41% to 93%, and accuracy on our own 200 German test prompts (v1) from 65% to 78%.
+- Adding short prompts for all three classes: on our balanced own prompts (600, 200 per decision), accuracy rose from 449 to 484 (TF-IDF) and from 455 to 486 (SVM), and warn prompts let through fell from 66 to 34 and from 51 to 20 of 200. Results in `notebooks/short_prompts_retrain.ipynb`.
 
 Details: [`reports/`](reports/) and the conclusion section of each notebook.
 
@@ -89,7 +91,7 @@ AIOps_PromptGuard/
 │   └── policy.yaml         PII label → allow / warn / block
 ├── data/                   datasets (only splits.csv and own_prompts.csv are in Git)
 │   ├── splits.csv          fixed train / validation / test split
-│   └── own_prompts.csv     200 hand-written German test prompts
+│   └── own_prompts.csv     600 hand-written German test prompts (200 per label, column version v1/v2)
 ├── models/                 trained models (*.joblib, not in Git)
 ├── notebooks/              data preparation and experiments
 ├── reports/                result tables and data checks
@@ -346,7 +348,7 @@ sees a normal, harmless business prompt. We therefore use two extra files:
 | File | Content | Used for |
 |---|---|---|
 | `data/harmless_prompts.csv` (built by `src/harmless_data.py`, not in Git) | PII-free prompts with decision `allow`: first user questions from [oasst1](https://huggingface.co/datasets/OpenAssistant/oasst1) (de/en/fr/it, filtered for personal data) + company-style template prompts | oasst1: 70 / 15 / 15 train / validation / test (deterministic, by conversation). Templates: train only |
-| `data/own_prompts.csv` (in Git) | 200 hand-written realistic German prompts: 80 allow, 60 warn, 60 block, column `style` = formal / casual | **evaluation only, never train or tune on them** |
+| `data/own_prompts.csv` (in Git) | 600 hand-written realistic German prompts, 200 per decision. Column `version`: v1 = the first 200 (80 allow, 60 warn, 60 block), v2 = 400 added to balance the classes (120 allow, 140 warn, 140 block, built with `src/own_prompts.py`). Column `style` = formal / casual | **evaluation only, never train or tune on them** |
 
 Prompts with person names are removed, because names are `warn` under policy v0.1 and the file may only
 contain `allow` prompts. Removed prompts and the reason are written to `data/harmless_removed.csv`
@@ -413,7 +415,7 @@ to turn NER predictions into allow / warn / block.
 1. Train only on `train`.
 2. Tune hyperparameters and thresholds and compare models only on `validation`.
 3. Evaluate on `test` **once**, at the end, for the final models (Milestone 5).
-4. `data/own_prompts.csv` is an extra test set: only look at the results, never tune on them.
+4. `data/own_prompts.csv` is an extra test set: only look at the results, never tune on them. Notebooks run before the v2 extension report results on v1 only (200 prompts, 80/60/60); filter `version == "v1"` to reproduce them.
 5. Log `split_fingerprint()`, `harmless_fingerprint()` and the policy version with every MLflow run.
 6. Report results overall **and** for `language == "de"`.
 7. Use Python 3.14 and `requirements.txt`, so results are reproducible across the team.
