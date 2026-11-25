@@ -231,16 +231,23 @@ python -m ipykernel install --user --name promptguard --display-name "Python 3.1
 
 ### 7. Download and prepare the data
 
-The data files are not stored in Git. Download and build them once:
+The data files are not stored in Git. Download and build them once, in this order:
 
 ```bash
 python src/download_data.py      # ai4privacy dataset into data/ (files that exist are skipped)
+python src/make_splits.py        # only checks the existing split
 python src/harmless_data.py      # harmless prompts into data/harmless_prompts.csv (downloads oasst1, ~40 MB)
-python src/make_splits.py        # only checks the existing split, prints fingerprint 6afd6a257de1
+python src/short_prompts.py      # short prompts into data/short_prompts.csv
 ```
 
-`harmless_data.py` must print the fingerprint **`32d24c900fd7`**. If you see another value, tell the team
-before training a model.
+Each script prints a fingerprint. It must match the value below, otherwise your data is different from the
+team version: tell the team before training a model.
+
+| Script | Expected fingerprint |
+|---|---|
+| `make_splits.py` | `6afd6a257de1` |
+| `harmless_data.py` | `32d24c900fd7` |
+| `short_prompts.py` | `bb97fd4d3e90` |
 
 ### 8. Connect to the shared MLflow server (DagsHub)
 
@@ -348,6 +355,28 @@ contain `allow` prompts. Removed prompts and the reason are written to `data/har
 A quality check of the harmless prompts (private names, number filter, overlap with our test prompts,
 distribution) is in [`reports/harmless_check.md`](reports/harmless_check.md)
 (script: `scripts/check_harmless.py`).
+
+### Short prompts with and without personal data (data fix)
+
+With the harmless prompts, the models let 15 to 20 of 60 warn prompts through. The reason is the writing style:
+all ai4privacy texts (warn / block) are long documents (median ~190 characters), all harmless prompts (allow)
+are short requests (~70 characters). The models learned "short prompt = allow".
+
+`src/short_prompts.py` builds short prompts in German and English for **all three classes** from the same
+sentence frames (e.g. "Schreib eine Mail an {recipient} zum Thema {topic}."). Only the slot content decides:
+"das Vertriebsteam" = allow, a name or e-mail = warn, an IBAN or password = block. The decision is calculated
+with our policy (`prompt_decision`), not set by hand.
+
+| Split | Frames | Prompts | Personal data values from |
+|---|---|---|---|
+| train | 14 per language | 2,000 per class and language (12,000) | ai4privacy train |
+| validation | 6 other frames per language | 100 per class and language (200 / 200 / 200) | ai4privacy validation |
+| test | 6 other frames per language | 100 per class and language (200 / 200 / 200) | ai4privacy test |
+
+Validation and test use other sentence frames than training, so a good result there means the model learned
+the content, not the frames. The frames were written without looking at `data/own_prompts.csv`.
+The file `data/short_prompts.csv` is built by the script and not in Git.
+
 
 ### Loading the data in code
 
