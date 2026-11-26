@@ -37,6 +37,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+# MLflow prints an emoji when a run ends; the Windows console cannot show it without UTF-8
+sys.stdout.reconfigure(encoding="utf-8")
+
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 sys.path.append(str(PROJECT_DIR / "src"))
 
