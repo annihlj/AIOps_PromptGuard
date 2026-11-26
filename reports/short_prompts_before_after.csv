@@ -9,9 +9,9 @@ short val: correct,80.7%,93.0%,80.5%,90.3%
 short val: block caught,97.5%,100.0%,100.0%,100.0%
 short val: warn let through (allow),9.5%,3.0%,4.0%,2.0%
 short val: allow blocked,15.5%,3.5%,17.0%,11.5%
-own prompts correct,155 of 200,170 of 200,156 of 200,166 of 200
-own: block prompts caught,55 of 60,56 of 60,56 of 60,57 of 60
-own: casual block prompts caught,13 of 15,13 of 15,12 of 15,12 of 15
-own: harmless prompts blocked,7 of 80,5 of 80,10 of 80,10 of 80
-own: warn prompts let through (allow),20 of 60,7 of 60,15 of 60,5 of 60
-response time p95 (ms),2.5,2.5,2.5,2.4
+own prompts correct,449 of 600,484 of 600,455 of 600,486 of 600
+own: block prompts caught,185 of 200,189 of 200,190 of 200,191 of 200
+own: casual block prompts caught,26 of 31,27 of 31,27 of 31,27 of 31
+own: harmless prompts blocked,20 of 200,19 of 200,29 of 200,28 of 200
+own: warn prompts let through (allow),66 of 200,34 of 200,51 of 200,20 of 200
+response time p95 (ms),3.9,4.0,3.9,4.1
