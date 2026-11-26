@@ -32,7 +32,8 @@ credentials, with a focus on **German** companies.
 1. **Data:** prepare the multilingual PII dataset `ai4privacy/pii-masking-200k` (de, en, fr, it) and map
    every PII label to allow / warn / block with a policy file.
 2. **Baselines:** a regex baseline and a TF-IDF + Logistic Regression classifier.
-3. **Better models:** compare further classifiers and a small Named Entity Recognition (NER) model.
+3. **Better models:** compare further classifiers (linear SVM), a pre-trained multilingual encoder
+   (XLM-RoBERTa) fine-tuned with LoRA, and a small Named Entity Recognition (NER) model.
 4. **Tracking:** log every experiment with **MLflow** on a shared server.
 5. **Deployment:** expose the selected model through a **FastAPI** service.
 
@@ -47,7 +48,8 @@ prompts and response time.
 | False block rate on harmless (allow) prompts | ≤ 5 % |
 | Response time (95th percentile) | < 100 ms |
 
-**Tech stack:** Python 3.14 · Jupyter · scikit-learn · Hugging Face · MLflow (DagsHub) · FastAPI · GitHub
+**Tech stack:** Python 3.14 · Jupyter · scikit-learn · PyTorch · Hugging Face Transformers · PEFT (LoRA) ·
+Google Colab (GPU training) · MLflow (DagsHub) · FastAPI · GitHub
 
 ## Current status and results
 
@@ -55,10 +57,12 @@ prompts and response time.
 |---|---|---|
 | M1 | Dataset, policy, fixed train / validation / test split | done |
 | M2 A | Baselines (regex, TF-IDF + LogReg), tuning, harmless prompts | done |
-| M2 B / C | Further classifiers, NER model | in progress |
+| M2 B | Linear SVM, short prompts with personal data (data fix), balanced own test prompts (600) | done |
+| M2 C | Encoder model (XLM-RoBERTa + LoRA), two runs | done |
+| M2 C | NER model | open |
 | M3 – M5 | API, final evaluation on the test set | planned |
 
-Results on the ai4privacy validation set (31,380 texts, all languages):
+**Results on the ai4privacy validation set** (31,380 texts, all languages):
 
 | Model | Notebook | Macro F1 | Recall block | Recall block (de) | Latency p95 |
 |---|---|---|---|---|---|
@@ -68,19 +72,44 @@ Results on the ai4privacy validation set (31,380 texts, all languages):
 | TF-IDF + harmless prompts in training | [`tfidf_harmless.ipynb`](notebooks/tfidf_harmless.ipynb) | 0.844 | **0.953** | 0.944 | 2.8 ms |
 | Linear SVM tuned (C = 1.0, threshold -0.4) | [`svm_linear.ipynb`](notebooks/svm_linear.ipynb) | 0.865 | **0.956** | 0.955 | 3.4 ms |
 | Linear SVM + harmless prompts | [`svm_linear.ipynb`](notebooks/svm_linear.ipynb) | 0.862 | **0.957** | 0.956 | 3.5 ms |
+| TF-IDF + harmless + short prompts | [`short_prompts_retrain.ipynb`](notebooks/short_prompts_retrain.ipynb) | 0.852 | **0.954** | **0.959** | 4.0 ms ¹ |
+| Linear SVM + harmless + short prompts | [`short_prompts_retrain.ipynb`](notebooks/short_prompts_retrain.ipynb) | 0.862 | **0.956** | **0.953** | 4.1 ms ¹ |
+| Encoder XLM-R + LoRA + harmless (run 1) | [`train_encoder_lora_colab.ipynb`](notebooks/train_encoder_lora_colab.ipynb) | **0.963** | **0.994** | **0.994** | ~85–110 ms ² |
+| Encoder XLM-R + LoRA + harmless + short prompts (run 2) | [`train_encoder_lora_colab.ipynb`](notebooks/train_encoder_lora_colab.ipynb) | **0.966** | **0.993** | **0.993** | not measured ³ |
 
-- The last four rows come from one comparison (chapter 9 of `svm_linear.ipynb`, saved in
-`reports/model_comparison_m2.csv`): same data, same code, latency measured on the same laptop.
-The baseline latencies were measured on another laptop and are only roughly comparable.
-- Adding harmless prompts raised the share of correctly allowed real harmless prompts from 41% to 93%,
-and accuracy on our own 200 German test prompts from 65% to 78%.
-- The downside: 20 of 60 warn prompts with names or e-mail addresses are now let through (before: 1),
-because the model links the short request style to "allow". Details and next step (plan B):
-conclusion of `tfidf_harmless.ipynb`.
-- Adding harmless prompts raised the share of correctly allowed real harmless prompts from 41% to 93%, and accuracy on our own 200 German test prompts (v1) from 65% to 78%.
-- Adding short prompts for all three classes: on our balanced own prompts (600, 200 per decision), accuracy rose from 449 to 484 (TF-IDF) and from 455 to 486 (SVM), and warn prompts let through fell from 66 to 34 and from 51 to 20 of 200. Results in `notebooks/short_prompts_retrain.ipynb`.
+¹ Measured in `short_prompts_retrain.ipynb` on another laptop; the "+ harmless" models measured there need
+3.9 ms, so the short prompts do not make the models slower.
+² CPU, one prompt at a time, on the same laptop as the SVM (3.5 ms), with `src/measure_latency.py`; two
+measurements gave p95 = 85 ms and 109 ms. ³ Same model size as run 1, so about the same time.
 
-Details: [`reports/`](reports/) and the conclusion section of each notebook.
+**Results on our own German test prompts** (`data/own_prompts.csv`, 600 prompts, 200 per decision):
+
+| Model | correct | warn → allow | block caught | harmless blocked |
+|---|---|---|---|---|
+| TF-IDF + harmless prompts | 449 of 600 | 66 of 200 | 185 of 200 | 20 of 200 |
+| TF-IDF + harmless + short prompts | 484 of 600 | 34 of 200 | 189 of 200 | 19 of 200 |
+| Linear SVM + harmless prompts | 455 of 600 | 51 of 200 | 190 of 200 | 29 of 200 |
+| Linear SVM + harmless + short prompts | 486 of 600 | 20 of 200 | **191 of 200** | 28 of 200 |
+| Encoder run 1 (+ harmless) | **548 of 600** | 6 of 200 | 177 of 200 | **7 of 200** |
+| Encoder run 2 (+ harmless + short prompts) | **548 of 600** | **5 of 200** | 179 of 200 | 10 of 200 |
+
+What we learned:
+
+- **Harmless prompts** raised the share of correctly allowed real harmless prompts from 41 % to 93 %, and
+  accuracy on our own prompts (v1, 200) from 65 % to 78 %. The downside: the TF-IDF / SVM models learned the
+  shortcut "short request = allow" and let 15 to 20 of 60 warn prompts (names, e-mails) through.
+- **Short prompts with personal data** (data fix, `src/short_prompts.py`) break this shortcut for TF-IDF and SVM:
+  warn prompts let through fell from 66 to 34 (TF-IDF) and from 51 to 20 of 200 (SVM), without losing recall
+  block on ai4privacy.
+- **The encoder reads the context** instead of pieces of letters: best macro F1 on validation (0.96) and on our
+  own prompts (548 of 600), only 5 to 6 of 200 warn prompts let through, and far fewer false alarms. The short
+  prompts hardly change it (run 1 ≈ run 2): the encoder never had the shortcut problem.
+- **Weaknesses of the encoder:** passwords written in everyday style ("Das WLAN-Passwort ist Kaffeebohne#42")
+  are classified as warn instead of block (18 of the 21 missed block prompts of run 2), and order / ticket
+  numbers cause most false alarms. It is 25 to 30 times slower than the SVM, with p95 around our 100 ms target.
+
+Details: [`reports/`](reports/), the conclusion section of each notebook, the runs in MLflow, and the
+explanations of every model in [`docs/algorithms/`](docs/algorithms/) (German and English).
 
 ## Repository structure
 
@@ -92,20 +121,28 @@ AIOps_PromptGuard/
 ├── data/                   datasets (only splits.csv and own_prompts.csv are in Git)
 │   ├── splits.csv          fixed train / validation / test split
 │   └── own_prompts.csv     600 hand-written German test prompts (200 per label, column version v1/v2)
-├── models/                 trained models (*.joblib, not in Git)
+├── docs/algorithms/        how each model works, in simple words (de/ and en/):
+│                           TF-IDF, Logistic Regression, linear SVM, encoder with LoRA
+├── models/                 trained models, not in Git (*.joblib, encoder adapter folders)
 ├── notebooks/              data preparation and experiments
+│   └── train_encoder_lora_colab.ipynb   encoder training, runs in Google Colab (GPU)
 ├── reports/                result tables and data checks
 ├── scripts/                one-off analysis scripts (e.g. check_harmless.py)
 ├── src/                    shared Python code
 │   ├── data_utils.py       load splits, policy, fingerprints
 │   ├── download_data.py    download ai4privacy dataset
 │   ├── harmless_data.py    build harmless prompts (oasst1 + templates)
+│   ├── short_prompts.py    build short prompts with and without personal data (all three classes)
+│   ├── own_prompts.py      extend own_prompts.csv from 200 (v1) to 600 prompts (v2)
 │   ├── make_splits.py      create / verify the split
+│   ├── encoder_utils.py    load the encoder (base model + LoRA adapter) and classify prompts
+│   ├── measure_latency.py  response time of the encoder on the CPU (laptop)
+│   ├── evaluate_own_prompts.py  evaluate saved models from MLflow on own prompts v1 / v2 / all
 │   └── check_mlflow.py     test the connection to the MLflow server
 ├── tests/                  unit tests (planned)
 ├── .env.example            template for the MLflow credentials
 ├── .python-version         Python version of the project (3.14)
-├── requirements.txt        Python packages
+├── requirements.txt        Python packages (incl. torch, transformers, peft for the encoder)
 └── LICENSE
 ```
 
@@ -222,6 +259,10 @@ python -m pip install -r requirements.txt
 
 Run the second command again whenever `requirements.txt` changes (for example after a `git pull`).
 
+The packages include PyTorch for the encoder model (about 200 MB). On Windows and macOS this is the CPU
+version, which is all you need on a laptop. On Linux pip would download the much larger GPU version; add
+`--extra-index-url https://download.pytorch.org/whl/cpu` to get the CPU version.
+
 ### 6. Register the environment as a notebook kernel
 
 A kernel is the Python process that runs the code cells of a notebook. Register the environment once
@@ -288,8 +329,38 @@ Run the experiment notebooks in this order, because later notebooks load models 
 3. `baseline_tfidf_logreg.ipynb`
 4. `tfidf_tuning.ipynb` (saves `models/tfidf_logreg_tuned.joblib`)
 5. `tfidf_harmless.ipynb` (needs the model from step 4)
+6. `svm_linear.ipynb` (compares with the models from steps 4 and 5)
+7. `short_prompts_retrain.ipynb` (needs the "+ harmless" models from steps 5 and 6)
+8. `train_encoder_lora_colab.ipynb`: needs a GPU, run it in Google Colab (step 10)
 
-### 10. End your session
+### 10. Train the encoder in Google Colab
+
+The encoder (XLM-RoBERTa + LoRA) needs a GPU. The notebook downloads the project from GitHub (branch `main`),
+builds the data with the same scripts as step 7, checks the fingerprints, trains, evaluates and logs
+everything to MLflow. How the model works: [`docs/algorithms/en/04_encoder_lora.md`](docs/algorithms/en/04_encoder_lora.md).
+
+1. Push your changes to `main` (Colab clones the GitHub version, not your local files).
+2. Open the notebook in Colab (badge at the top of the notebook) and choose
+   *Runtime → Change runtime type → T4 GPU*.
+3. Add two Colab secrets (key icon on the left, switch on "Notebook access"):
+   `MLFLOW_TRACKING_USERNAME` (DagsHub user name) and `MLFLOW_TRACKING_PASSWORD` (DagsHub token).
+4. In chapter 3 choose the run with `USE_TEMPLATE_PII`: `False` = run 1 (`xlmr_lora_benign`),
+   `True` = run 2 with the short prompts (`xlmr_lora_benign_templates`).
+5. *Runtime → Run all* (about 30 to 45 minutes). At the end the browser downloads a ZIP with the model
+   (adapter) and the result tables; the model is also stored in the MLflow run under `model/`.
+
+Afterwards, on the laptop (environment active):
+
+```bash
+# response time on the CPU; downloads the model from MLflow into models/ and logs latency_p50_ms / latency_p95_ms
+python src/measure_latency.py --download --log                      # run 1
+python src/measure_latency.py --download --log --run-name xlmr_lora_benign_templates --model-dir models/xlmr_lora_benign_templates
+
+# saved models (SVM and encoder) on our own prompts v1 / v2 / all; --log adds own_prompts_v1_* / _v2_* / _all_*
+python src/evaluate_own_prompts.py --log
+```
+
+### 11. End your session
 
 Save the notebooks, then deactivate the environment in the terminal:
 
@@ -389,11 +460,13 @@ import sys
 sys.path.append("../src")
 from data_utils import load_all_splits, split_fingerprint
 from harmless_data import load_harmless, harmless_fingerprint
+from short_prompts import load_short_prompts, short_prompts_fingerprint
 
 splits = load_all_splits()               # dict with "train", "validation", "test"
 train, val = splits["train"], splits["validation"]
 harmless_train = load_harmless("train")
-print(split_fingerprint(), harmless_fingerprint())
+short_train = load_short_prompts("train")
+print(split_fingerprint(), harmless_fingerprint(), short_prompts_fingerprint())
 ```
 
 Each split is a DataFrame with all original dataset columns plus `decision`:
@@ -415,10 +488,15 @@ to turn NER predictions into allow / warn / block.
 1. Train only on `train`.
 2. Tune hyperparameters and thresholds and compare models only on `validation`.
 3. Evaluate on `test` **once**, at the end, for the final models (Milestone 5).
-4. `data/own_prompts.csv` is an extra test set: only look at the results, never tune on them. Notebooks run before the v2 extension report results on v1 only (200 prompts, 80/60/60); filter `version == "v1"` to reproduce them.
-5. Log `split_fingerprint()`, `harmless_fingerprint()` and the policy version with every MLflow run.
-6. Report results overall **and** for `language == "de"`.
-7. Use Python 3.14 and `requirements.txt`, so results are reproducible across the team.
+4. `data/own_prompts.csv` is an extra test set: only look at the results, never tune on them. Notebooks run
+   before the v2 extension report results on v1 only (200 prompts, 80/60/60); filter `version == "v1"` to
+   reproduce them. In MLflow, use `own_prompts_v1_*`, `own_prompts_v2_*` and `own_prompts_all_*` to compare
+   models (see [Experiment tracking](#experiment-tracking-with-mlflow)).
+5. Log `split_fingerprint()`, `harmless_fingerprint()`, `short_prompts_fingerprint()` (if used) and the
+   policy version with every MLflow run.
+6. The test part of the short prompts (`split == "test"`) follows rule 3: only once, in Milestone 5.
+7. Report results overall **and** for `language == "de"`.
+8. Use Python 3.14 and `requirements.txt`, so results are reproducible across the team.
 
 ## Experiment tracking with MLflow
 
@@ -428,6 +506,13 @@ to turn NER predictions into allow / warn / block.
   the fingerprints of the data it used.
 - View the runs in DagsHub under **Experiments**, or locally with
   `mlflow ui --backend-store-uri sqlite:///mlflow.db`.
+- The trained models are stored as artifacts of their run: `*.joblib` for TF-IDF / SVM, the folder `model/`
+  (LoRA adapter, tokenizer, `promptguard_config.json`) for the encoder runs `xlmr_lora_benign` and
+  `xlmr_lora_benign_templates`.
+- **Metrics on our own prompts:** `own_prompts_*` was measured on v1 (200 prompts) in most runs, but on all
+  600 prompts in runs logged after the v2 extension (the newest `svm_short` and `tfidf_logreg_short`).
+  To compare models, use the explicit names `own_prompts_v1_*`, `own_prompts_v2_*` and `own_prompts_all_*`
+  (added to the SVM and encoder runs with `src/evaluate_own_prompts.py`).
 
 ## Troubleshooting
 
@@ -440,6 +525,10 @@ to turn NER predictions into allow / warn / block.
 | `FileNotFoundError` for a data file | Run the commands in step 7. |
 | `tfidf_harmless.ipynb` stops because a model is missing | Run `tfidf_tuning.ipynb` first. |
 | `check_mlflow.py`: `MLFLOW_TRACKING_URI is not set` | `.env` is missing or empty (step 8). |
+| `short_prompts_retrain.ipynb` stops because a model is missing | Run `tfidf_harmless.ipynb` and `svm_linear.ipynb` first. |
+| Encoder: "LOAD REPORT … classifier … MISSING" when loading | Expected. The base model has no classifier; the trained one is loaded from the adapter right after. |
+| Colab trains with an old version of the code | Colab keeps the first clone. *Runtime → Disconnect and delete runtime*, then run again; chapter 1 prints the git commit. |
+| Colab: fingerprint of `harmless_prompts.csv` or `short_prompts.csv` is different | Upload your local file (folder icon on the left) into `data/` of the project and run the cell again. |
 
 ## License and data sources
 
@@ -453,12 +542,13 @@ our scripts and keeps its own license:
 |---|---|---|---|
 | [ai4privacy/pii-masking-200k](https://huggingface.co/datasets/ai4privacy/pii-masking-200k) | main training / validation / test data | Custom Ai4Privacy license ([license.md](https://huggingface.co/datasets/ai4privacy/pii-masking-200k/blob/main/license.md)): free for individuals, organisations with up to 3 staff and non-profits; derivatives must not be distributed, sold, re-licensed or sublicensed. Copyright © 2023 Ai4Privacy | `src/download_data.py` |
 | [OpenAssistant/oasst1](https://huggingface.co/datasets/OpenAssistant/oasst1) | harmless prompts | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) | `src/harmless_data.py` |
+| [FacebookAI/xlm-roberta-base](https://huggingface.co/FacebookAI/xlm-roberta-base) (model, not data) | base model of the encoder | MIT | the encoder notebook and `src/encoder_utils.py` |
 
 - oasst1 citation: Köpf et al. (2023), "OpenAssistant Conversations: Democratizing Large Language Model
   Alignment", arXiv:2304.07327. We only use the first user message of each conversation and filter it
   (see `src/harmless_data.py`).
 - `data/splits.csv` only contains row ids and split names, no texts from ai4privacy.
-- Models trained on ai4privacy (e.g. `models/*.joblib`, MLflow artifacts) are covered by the ai4privacy
+- Models trained on ai4privacy (e.g. `models/*.joblib`, the encoder adapters, MLflow artifacts) are covered by the ai4privacy
   terms, not by our MIT license. Do not publish them without checking those terms.
 - A productive use of PromptGuard in a company with more than three employees would need a commercial
   Ai4Privacy license or retraining on freely licensed data.

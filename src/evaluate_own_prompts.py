@@ -2,7 +2,7 @@
 
 WHY THIS SCRIPT EXISTS
 ----------------------
-data/own_prompts.csv was extended (src/own_prompts.py, Olga):
+data/own_prompts.csv was extended with src/own_prompts.py:
     v1 = the original 200 prompts (80 allow / 60 warn / 60 block); all earlier runs were measured on these
     v2 = 400 new prompts (120 allow / 140 warn / 140 block)
     all = 600 prompts, 200 per class
@@ -155,7 +155,7 @@ def main() -> None:
 
     own = pd.read_csv(PROJECT_DIR / "data" / "own_prompts.csv")
     if "version" not in own.columns:
-        raise SystemExit("data/own_prompts.csv has no column 'version' (git pull for Olga's v2 prompts).")
+        raise SystemExit("data/own_prompts.csv has no column 'version' (git pull for the v2 prompts).")
     expected = own["expected_decision"].to_numpy()
     casual = (own["style"] == "casual").to_numpy()
     subsets = {"v1": (own["version"] == "v1").to_numpy(),
@@ -172,7 +172,7 @@ def main() -> None:
 
         metrics = {name: own_metrics(expected[m], pred[m], casual[m]) for name, m in subsets.items()}
         # Check that the model loaded correctly: the old own_prompts_* metrics of the run must be
-        # reproduced exactly. Most runs measured them on v1 (200); runs logged after Olga's
+        # reproduced exactly. Most runs measured them on v1 (200); runs logged after the
         # extension measured them on all 600 prompts. So we accept v1 OR all and say which one.
         logged = {key: run.get(f"metrics.own_prompts_{key}") for key in CHECK_METRICS}
         logged = {k: v for k, v in logged.items() if v is not None and not pd.isna(v)}
