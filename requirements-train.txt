@@ -1,0 +1,8 @@
+# Extra packages ONLY for GPU training in Google Colab. Not needed on the laptop:
+# requirements.txt is enough for the notebooks, measure_latency.py and evaluate_own_prompts.py.
+# notebooks/train_llm_lora_colab.ipynb installs this file in Colab (together with the packages
+# from requirements.txt, except torch).
+
+# 4-bit quantization of the base model (QLoRA), used for MODEL_SIZE = "1.7B".
+# Works only with an NVIDIA GPU.
+bitsandbytes==0.50.2

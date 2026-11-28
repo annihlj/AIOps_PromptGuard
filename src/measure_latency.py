@@ -1,15 +1,18 @@
-"""Measure the response time of the encoder model on THIS computer (CPU, one prompt at a time).
+"""Measure the response time of a transformer model (encoder or LLM) on THIS computer (CPU, one prompt at a time).
 
 WHY THIS SCRIPT EXISTS
 ----------------------
-The encoder is trained in Google Colab on a GPU. But PromptGuard will run on a normal
-server without GPU, and our TF-IDF / SVM times (about 3 ms, p95) were measured on a
-laptop. To compare fairly, we measure the encoder in the same way:
+The encoder (XLM-R) and the small LLM (Qwen3) are trained in Google Colab on a GPU. But
+PromptGuard will run on a normal server without GPU, and our TF-IDF / SVM times (about 3 ms,
+p95) were measured on a laptop. To compare fairly, we measure every model in the same way:
     - on the CPU,
     - one prompt at a time (batch size 1), like in the real application,
     - the same 1,000 validation prompts as in svm_linear.ipynb chapter 9
       (val["source_text"].sample(1000, random_state=42)),
-    - the time includes tokenizing + model + block rule (like pipeline.predict for TF-IDF).
+    - the time includes tokenizing + model + block rule (like pipeline.predict for TF-IDF),
+    - the LoRA adapter is merged into the base model first (merge_and_unload),
+    - torch uses its default number of CPU threads (logged as a tag).
+Whether the folder holds an encoder or an LLM is written in its promptguard_config.json.
 
 USAGE (from the project folder, venv activated, after python -m pip install -r requirements.txt)
 
@@ -19,7 +22,11 @@ USAGE (from the project folder, venv activated, after python -m pip install -r r
     # 2) same, and write the result into the MLflow run (latency_p50_ms, latency_p95_ms)
     python src/measure_latency.py --download --log
 
-    # the model folder already exists (e.g. copied from Google Drive):
+    # another run: the model folder is models/<run name>/ unless --model-dir is given
+    python src/measure_latency.py --download --log --run-name xlmr_lora_benign_templates
+    python src/measure_latency.py --download --log --run-name qwen3_0.6b_lora_templates
+
+    # the model folder already exists (e.g. unpacked from the ZIP of the Colab notebook):
     python src/measure_latency.py --model-dir models/xlmr_lora_benign --log
 
 Close other programs while measuring, otherwise the times are too high.
@@ -83,7 +90,7 @@ def latency_prompts(n: int) -> list[str]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--model-dir", default=str(PROJECT_DIR / "models" / DEFAULT_RUN_NAME))
+    parser.add_argument("--model-dir", default=None, help="model folder (default: models/<run name>)")
     parser.add_argument("--run-name", default=DEFAULT_RUN_NAME, help="MLflow run to download from / log to")
     parser.add_argument("--download", action="store_true", help="download the model from MLflow first")
     parser.add_argument("--log", action="store_true", help="log the result to the MLflow run")
@@ -91,9 +98,9 @@ def main() -> None:
     args = parser.parse_args()
 
     import torch
-    from encoder_utils import load_encoder, predict_proba, predict_with_threshold
+    from encoder_utils import load_model, predict_proba, predict_with_threshold
 
-    model_dir = Path(args.model_dir)
+    model_dir = Path(args.model_dir) if args.model_dir else PROJECT_DIR / "models" / args.run_name
     mlflow, run_id = None, None
     if args.download or args.log:
         mlflow = connect_mlflow()
@@ -111,10 +118,10 @@ def main() -> None:
     if not model_dir.exists():
         raise SystemExit(f"{model_dir} not found. Use --download or --model-dir.")
 
-    # CPU only, so the numbers are comparable with TF-IDF / SVM
-    model, tokenizer, cfg = load_encoder(model_dir, device="cpu", merge=True)
+    # CPU only, so the numbers are comparable with TF-IDF / SVM; merge=True: LoRA added into the base model
+    model, tokenizer, cfg = load_model(model_dir, device="cpu", merge=True)
     threshold = cfg["block_threshold"]
-    print(f"Model: {cfg['base_model']} + LoRA | threshold: {threshold} | "
+    print(f"Model: {cfg['base_model']} + LoRA ({cfg.get('model_family', 'encoder')}) | threshold: {threshold} | "
           f"torch threads: {torch.get_num_threads()}")
 
     print("Loading the validation prompts (takes a moment) ...")
@@ -143,7 +150,8 @@ def main() -> None:
     print(f"\n{len(times)} prompts, CPU: {cpu}")
     for key, value in result.items():
         print(f"  {key:<16} {value:7.1f}")
-    print("For comparison (reports/model_comparison_m2.csv, same laptop): SVM + harmless p95 = 3.5 ms")
+    print("For comparison (same laptop): SVM + harmless p95 = 3.5 ms (reports/model_comparison_m2.csv), "
+          "encoder run 1 p95 = 85-109 ms (README)")
 
     if args.log:
         with mlflow.start_run(run_id=run_id):        # reopens the existing run

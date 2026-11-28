@@ -59,7 +59,7 @@ Google Colab (GPU training) · MLflow (DagsHub) · FastAPI · GitHub
 | M2 A | Baselines (regex, TF-IDF + LogReg), tuning, harmless prompts | done |
 | M2 B | Linear SVM, short prompts with personal data (data fix), balanced own test prompts (600) | done |
 | M2 C | Encoder model (XLM-RoBERTa + LoRA), two runs | done |
-| M2 C | NER model | open |
+| M2 C | Small LLM (Qwen3-0.6B) + LoRA: notebook ready, run pending | in progress |
 | M3 – M5 | API, final evaluation on the test set | planned |
 
 **Results on the ai4privacy validation set** (31,380 texts, all languages):
@@ -108,6 +108,22 @@ What we learned:
   are classified as warn instead of block (18 of the 21 missed block prompts of run 2), and order / ticket
   numbers cause most false alarms. It is 25 to 30 times slower than the SVM, with p95 around our 100 ms target.
 
+### Next: a small LLM (Qwen3) with LoRA
+
+Question: does the bigger language knowledge of an LLM give better results, above all a higher **block recall on our
+own prompts** (encoder run 2: 179 of 200), and is it worth the loss in speed? Notebook:
+[`train_llm_lora_colab.ipynb`](notebooks/train_llm_lora_colab.ipynb), explanation:
+[`docs/algorithms/en/05_llm_lora.md`](docs/algorithms/en/05_llm_lora.md).
+
+- Model: `Qwen/Qwen3-0.6B` (fixed revision, Apache-2.0) as a classifier with 3 classes, LoRA on
+  `q_proj`/`k_proj`/`v_proj`/`o_proj` (4.6 M of 600 M weights trainable). Optional `Qwen3-1.7B` with QLoRA (4 bit).
+- **Fair comparison:** the same data, sample, fingerprints, threshold rule and evaluation as encoder run 2 (shared code
+  in `src/train_utils.py`, checked: identical training sample of 45,845 texts). Only the model is different.
+- MLflow run `qwen3_0.6b_lora_templates`, comparison table `model_comparison_llm.csv` (SVM + short | encoder run 2 |
+  Qwen3). Results will be added here after the run.
+- First check of the speed (untrained adapter, laptop CPU): about **850 ms p95** per prompt, the encoder about 145 ms in the
+  same test. So the LLM is clearly above our 100 ms target; the run shows whether the quality is worth it.
+
 Details: [`reports/`](reports/), the conclusion section of each notebook, the runs in MLflow, and the
 explanations of every model in [`docs/algorithms/`](docs/algorithms/) (German and English).
 
@@ -122,10 +138,11 @@ AIOps_PromptGuard/
 │   ├── splits.csv          fixed train / validation / test split
 │   └── own_prompts.csv     600 hand-written German test prompts (200 per label, column version v1/v2)
 ├── docs/algorithms/        how each model works, in simple words (de/ and en/):
-│                           TF-IDF, Logistic Regression, linear SVM, encoder with LoRA
+│                           TF-IDF, Logistic Regression, linear SVM, encoder with LoRA, LLM with LoRA
 ├── models/                 trained models, not in Git (*.joblib, encoder adapter folders)
 ├── notebooks/              data preparation and experiments
-│   └── train_encoder_lora_colab.ipynb   encoder training, runs in Google Colab (GPU)
+│   ├── train_encoder_lora_colab.ipynb   encoder training, runs in Google Colab (GPU)
+│   └── train_llm_lora_colab.ipynb       LLM (Qwen3) training, runs in Google Colab (GPU)
 ├── reports/                result tables and data checks
 ├── scripts/                one-off analysis scripts (e.g. check_harmless.py)
 ├── src/                    shared Python code
@@ -135,14 +152,16 @@ AIOps_PromptGuard/
 │   ├── short_prompts.py    build short prompts with and without personal data (all three classes)
 │   ├── own_prompts.py      extend own_prompts.csv from 200 (v1) to 600 prompts (v2)
 │   ├── make_splits.py      create / verify the split
-│   ├── encoder_utils.py    load the encoder (base model + LoRA adapter) and classify prompts
-│   ├── measure_latency.py  response time of the encoder on the CPU (laptop)
+│   ├── encoder_utils.py    load an encoder or LLM (base model + LoRA adapter) and classify prompts
+│   ├── train_utils.py      training data, sample and evaluation shared by the encoder and LLM notebooks
+│   ├── measure_latency.py  response time of an encoder or LLM on the CPU (laptop)
 │   ├── evaluate_own_prompts.py  evaluate saved models from MLflow on own prompts v1 / v2 / all
 │   └── check_mlflow.py     test the connection to the MLflow server
 ├── tests/                  unit tests (planned)
 ├── .env.example            template for the MLflow credentials
 ├── .python-version         Python version of the project (3.14)
 ├── requirements.txt        Python packages (incl. torch, transformers, peft for the encoder)
+├── requirements-train.txt  extra packages only for GPU training in Colab (bitsandbytes for QLoRA)
 └── LICENSE
 ```
 
@@ -332,6 +351,7 @@ Run the experiment notebooks in this order, because later notebooks load models 
 6. `svm_linear.ipynb` (compares with the models from steps 4 and 5)
 7. `short_prompts_retrain.ipynb` (needs the "+ harmless" models from steps 5 and 6)
 8. `train_encoder_lora_colab.ipynb`: needs a GPU, run it in Google Colab (step 10)
+9. `train_llm_lora_colab.ipynb`: needs a GPU, run it in Google Colab (step 10)
 
 ### 10. Train the encoder in Google Colab
 
@@ -358,6 +378,21 @@ python src/measure_latency.py --download --log --run-name xlmr_lora_benign_templ
 
 # saved models (SVM and encoder) on our own prompts v1 / v2 / all; --log adds own_prompts_v1_* / _v2_* / _all_*
 python src/evaluate_own_prompts.py --log
+```
+
+#### The LLM (Qwen3 + LoRA)
+
+`notebooks/train_llm_lora_colab.ipynb` works the same way (same Colab secrets, same steps 1 to 3). In chapter 3:
+
+- `QUICK_TEST = True` (default): a mini run (about 1,000 texts, 1 epoch) to check that everything runs, about 10 to 15
+  minutes. It is logged as `..._quicktest` with the tag `quick_test=true`. Then set `QUICK_TEST = False` and run all
+  again (about 1 to 1.5 hours on a T4).
+- `MODEL_SIZE = "0.6B"` (default, LoRA) or `"1.7B"` (QLoRA in 4 bits, needs `requirements-train.txt`, several hours).
+
+Afterwards, on the laptop:
+
+```bash
+python src/measure_latency.py --download --log --run-name qwen3_0.6b_lora_templates
 ```
 
 ### 11. End your session
@@ -508,7 +543,9 @@ to turn NER predictions into allow / warn / block.
   `mlflow ui --backend-store-uri sqlite:///mlflow.db`.
 - The trained models are stored as artifacts of their run: `*.joblib` for TF-IDF / SVM, the folder `model/`
   (LoRA adapter, tokenizer, `promptguard_config.json`) for the encoder runs `xlmr_lora_benign` and
-  `xlmr_lora_benign_templates`.
+  `xlmr_lora_benign_templates` and the LLM run `qwen3_0.6b_lora_templates`.
+- Quick tests of the LLM notebook have the tag `quick_test = true` (and `candidate = false`). Hide them in DagsHub
+  with the filter `tags.quick_test != "true"`.
 - **Metrics on our own prompts:** `own_prompts_*` was measured on v1 (200 prompts) in most runs, but on all
   600 prompts in runs logged after the v2 extension (the newest `svm_short` and `tfidf_logreg_short`).
   To compare models, use the explicit names `own_prompts_v1_*`, `own_prompts_v2_*` and `own_prompts_all_*`
@@ -529,6 +566,8 @@ to turn NER predictions into allow / warn / block.
 | Encoder: "LOAD REPORT … classifier … MISSING" when loading | Expected. The base model has no classifier; the trained one is loaded from the adapter right after. |
 | Colab trains with an old version of the code | Colab keeps the first clone. *Runtime → Disconnect and delete runtime*, then run again; chapter 1 prints the git commit. |
 | Colab: fingerprint of `harmless_prompts.csv` or `short_prompts.csv` is different | Upload your local file (folder icon on the left) into `data/` of the project and run the cell again. |
+| LLM notebook: the training loss shows `nan` | The calculation in half precision overflowed. In chapter 8 set `fp16=False` (slower) and run again. |
+| LLM notebook: "CUDA out of memory" | In chapter 3 halve `batch_size` and double `grad_accum` in `QWEN_MODELS` (the effective batch stays 32). |
 
 ## License and data sources
 
@@ -543,6 +582,7 @@ our scripts and keeps its own license:
 | [ai4privacy/pii-masking-200k](https://huggingface.co/datasets/ai4privacy/pii-masking-200k) | main training / validation / test data | Custom Ai4Privacy license ([license.md](https://huggingface.co/datasets/ai4privacy/pii-masking-200k/blob/main/license.md)): free for individuals, organisations with up to 3 staff and non-profits; derivatives must not be distributed, sold, re-licensed or sublicensed. Copyright © 2023 Ai4Privacy | `src/download_data.py` |
 | [OpenAssistant/oasst1](https://huggingface.co/datasets/OpenAssistant/oasst1) | harmless prompts | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) | `src/harmless_data.py` |
 | [FacebookAI/xlm-roberta-base](https://huggingface.co/FacebookAI/xlm-roberta-base) (model, not data) | base model of the encoder | MIT | the encoder notebook and `src/encoder_utils.py` |
+| [Qwen/Qwen3-0.6B](https://huggingface.co/Qwen/Qwen3-0.6B), [Qwen/Qwen3-1.7B](https://huggingface.co/Qwen/Qwen3-1.7B) (models, not data) | base model of the LLM classifier | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) | the LLM notebook and `src/encoder_utils.py` |
 
 - oasst1 citation: Köpf et al. (2023), "OpenAssistant Conversations: Democratizing Large Language Model
   Alignment", arXiv:2304.07327. We only use the first user message of each conversation and filter it
